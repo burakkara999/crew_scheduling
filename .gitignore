@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+._*
+
+# Editörler
+.vscode/
+.idea/
+*.swp
+
+# Node (yalnızca testler için; `npm install` ile yeniden kurulur)
+node_modules/
+npm-debug.log*
+
+# Python (yerel sunucu için ortam gerekmez; yine de oluşturulursa)
+.venv/
+venv/
+__pycache__/
+
+# Claude Code yerel ayarları
+.claude/
+
+# Diğer
+*.log
+.env

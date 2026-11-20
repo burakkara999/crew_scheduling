@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vardiya Planlayıcı</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: sakin, işe odaklı; bir vardiya amirinin her gün açtığı araç.
+   IDEA: hastane koridorundaki vardiya panosu + 24 saatlik bir hat.
+   PICTURE: çizelge ızgarasının kendisi; üstünde vardiyaları gösteren kalın 24 saat hattı.
+   COLOUR and TYPE: beyaz zemin, vardiya/birim renkleri kullanıcı seçimli (varsayılan amber/kırmızı/mavi), siyah mürekkep; Figtree 800 + Figtree.
+   LAYOUT: başlık + hat, araç çubuğu, ızgara (ilk ekran), altında sekmeli girdiler. */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0e1116);--ink:light-dark(#111418,#e9ecf1);--mute:light-dark(#5b6370,#9aa3b2);
+--line:light-dark(#e3e6eb,#262b35);--panel:light-dark(#f4f5f7,#161a21);--wk:light-dark(#fafbfc,#12161c);
+--bad:#e6261f;--ok:#00a05a}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Figtree,system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(20px,3vw,40px) max(4vw,16px);max-width:1400px;margin:0 auto}
+h1{font-weight:800;font-size:clamp(32px,4.4vw,48px);line-height:1.05;margin:0;text-wrap:balance}
+h2{font-weight:800;font-size:22px;margin:0 0 12px}
+.lede{color:var(--mute);margin:8px 0 0;max-width:68ch}
+.strip{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:22px 0 4px}
+.strip span{height:100%}
+.ticks{display:flex;font-size:13px;color:var(--mute)}.ticks span{overflow:hidden;white-space:nowrap}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:20px 0 14px}
+button,input,select{font:inherit;color:inherit}
+.btn{min-height:44px;padding:0 18px;border-radius:10px;border:1px solid var(--line);background:var(--bg);cursor:pointer;font-weight:600}
+.btn:hover{border-color:var(--mute)}
+.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:800}
+.primary:disabled{opacity:.5;cursor:wait}
+:focus-visible{outline:3px solid var(--G);outline-offset:2px}
+label.f{display:flex;gap:8px;align-items:center;font-size:15px;color:var(--mute)}
+input[type=number],input[type=text],input[type=date],select{font-size:16px;min-height:40px;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+input[type=number]{width:72px;text-align:right}
+.status{font-size:15px;color:var(--mute);margin-left:auto}
+.status b{color:var(--ink)}.status.err b{color:var(--bad)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--panel);border-radius:10px;padding:10px 14px}
+.kpi small{display:block;color:var(--mute);font-size:13px}.kpi b{font-size:22px;font-weight:800}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+table.grid{border-collapse:separate;border-spacing:0;font-size:14px;width:max-content;min-width:100%}
+.grid th,.grid td{border-bottom:1px solid var(--line);padding:4px;text-align:center;white-space:nowrap}
+.grid thead th{font-weight:600;color:var(--mute);font-size:13px;line-height:1.2;padding:8px 4px}
+.grid thead th b{display:block;color:var(--ink);font-size:15px}
+.grid .nm{position:sticky;left:0;background:var(--bg);text-align:left;padding-left:12px;min-width:150px;z-index:1;font-weight:600;border-right:1px solid var(--line)}
+.grid .nm small{color:var(--mute);font-weight:400;margin-left:6px}
+.grid .we{background:var(--wk)}
+.grid td.sum{color:var(--mute);font-variant-numeric:tabular-nums;padding:4px 10px}
+.cell{width:44px;height:40px;border-radius:8px;border:1px solid transparent;background:transparent;cursor:pointer;font-weight:800;font-size:15px;position:relative;padding:0}
+.cell:hover{border-color:var(--line)}
+[hidden]{display:none!important}
+.sw{width:48px;height:40px;padding:3px;border:1px solid var(--line);border-radius:8px;background:var(--bg);cursor:pointer}
+.cell.I{background:repeating-linear-gradient(135deg,var(--panel) 0 5px,transparent 5px 10px);color:var(--mute);border-color:var(--line);font-size:12px}
+.cell.lock::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 2px var(--bg)}
+.cell.stale{opacity:.45}
+.cell.mu{width:50px;line-height:1}
+.cell.mu i{display:block;font-style:normal;font-size:10px;font-weight:700;opacity:.85;margin-bottom:2px}
+.cell.mu b{display:block;font-size:16px;font-weight:800;letter-spacing:-.01em}
+.nmb{all:unset;cursor:pointer;border-radius:4px}.nmb:hover{text-decoration:underline}.nmb:focus-visible{outline:3px solid var(--G);outline-offset:2px}
+tr.flash td{animation:flash 1.6s ease-out}@keyframes flash{from{background:color-mix(in srgb,var(--G) 22%,transparent)}}
+.ed th small{display:block;font-weight:400;font-size:12px}
+.cov.ufirst th,.cov.ufirst td{border-top:2px solid var(--line)}
+.cov td{font-size:12px;padding:2px 4px;font-variant-numeric:tabular-nums}
+.cov .nm{font-size:13px;font-weight:600}
+.dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.short{color:var(--bad);font-weight:800}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:14px;color:var(--mute);margin:10px 2px 0}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:18px}
+.tab{min-height:44px;padding:0 16px;border:0;background:none;cursor:pointer;font-weight:600;color:var(--mute);border-bottom:3px solid transparent}
+.tab[aria-selected=true]{color:var(--ink);border-color:var(--ink)}
+table.ed{border-collapse:collapse;width:100%;font-size:15px}
+.ed th{text-align:left;font-size:13px;color:var(--mute);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+.ed td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ed input[type=text]{width:100%;min-width:140px}
+.chipset{display:flex;gap:6px}
+.chip{min-width:44px;min-height:36px;padding:0 10px;border-radius:8px;border:1px dashed var(--line);background:transparent;color:var(--mute);cursor:pointer;font-weight:800}
+.chip:hover{border-color:var(--mute);color:var(--ink)}
+.chip.on[aria-pressed=true]{background:var(--ink);color:var(--bg);border:1px solid var(--ink)}
+.chip.on[aria-pressed=true]::before{content:"✓ "}
+.chip.avoid[aria-pressed=true]{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad);border:1px solid var(--bad)}
+.chip.avoid[aria-pressed=true]::before{content:"✕ "}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:24px}
+.note{font-size:14px;color:var(--mute);max-width:70ch}
+textarea{width:100%;min-height:120px;font:13px/1.4 ui-monospace,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel);color:var(--ink)}
+.empty{padding:40px;text-align:center;color:var(--mute)}
+@media(max-width:600px){.status{margin-left:0;width:100%}.grid .nm{min-width:110px}
+ table.ed.stack thead{display:none}.ed.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--line)}
+ .ed.stack td{display:flow-root;border:0;padding:3px 0;padding-inline-start:8em;text-align:start}
+ .ed.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;color:var(--mute);font-size:13px}}
+@media(prefers-reduced-motion:no-preference){.cell.fresh{animation:pop .35s ease-out both}@keyframes pop{from{transform:scale(.6);opacity:0}}}
+</style>
+</head>
+<body>
+<header class="band">
+  <h1>Vardiya Planlayıcı</h1>
+  <p class="lede">Personel, ihtiyaç ve kuralları girin; tamsayılı programlama modeli tarayıcınızda HiGHS ile çözülsün. Hücreye tıklayarak izin veya sabit vardiya tanımlayabilirsiniz.</p>
+  <div class="strip" id="strip" aria-hidden="true"></div>
+  <div class="ticks" id="ticks"></div>
+</header>
+
+<main class="band" style="padding-top:0">
+  <div class="bar">
+    <button class="btn primary" id="solve" disabled>Çözücü yükleniyor…</button>
+    <label class="f">Başlangıç <input type="date" id="start"></label>
+    <label class="f">Süre <select id="days"><option value="7">1 hafta</option><option value="14">2 hafta</option><option value="21">3 hafta</option><option value="28">4 hafta</option></select></label>
+    <label class="f" id="colorByWrap">Hücre rengi <select id="colorBy"><option value="vardiya">Vardiya</option><option value="birim">Birim</option></select></label>
+    <span class="status" id="status">Henüz çözülmedi.</span>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="scroll"><table class="grid" id="grid"></table></div>
+  <div class="legend" id="legend"></div>
+  <p class="note" style="margin-top:6px">Örnek veriyle açılır; personel ve ihtiyaçları aşağıdan düzenleyin.</p>
+</main>
+
+<section class="band">
+  <div class="tabs" role="tablist" id="tabs">
+    <button class="tab" role="tab" data-tab="staff" aria-selected="true">Personel</button>
+    <button class="tab" role="tab" data-tab="units" aria-selected="false">Birimler</button>
+    <button class="tab" role="tab" data-tab="demand" aria-selected="false">İhtiyaç</button>
+    <button class="tab" role="tab" data-tab="shifts" aria-selected="false">Vardiyalar</button>
+    <button class="tab" role="tab" data-tab="rules" aria-selected="false">Kurallar ve ağırlıklar</button>
+    <button class="tab" role="tab" data-tab="data" aria-selected="false">Veri</button>
+  </div>
+  <div id="panel"></div>
+</section>
+
+<datalist id="pal"></datalist>
+<script src="vendor/highs.js"></script>
+<script>
+/*MODEL-START*/
+const DAYN=['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
+function addDays(iso,n){const d=new Date(iso+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)}
+function wdIdx(iso){return (new Date(iso+'T00:00:00Z').getUTCDay()+6)%7}
+function dateList(st){return Array.from({length:st.days},(_,i)=>addDays(st.start,i))}
+function shiftLen(s){return ((s.bit-s.bas+24)%24)||24}
+function isNight(s){return s.bit<=s.bas}
+function restGap(a,b){const endA=a.bas+shiftLen(a);return 24+b.bas-endA}
+// Birimler (bölümler). Eski veride units yoksa tek birim olarak st.demand kullanılır.
+function unitsOf(st){return st.units&&st.units.length?st.units:[{id:'u1',kod:'',ad:'',kidemli:true,demand:st.demand}]}
+function allowedUnits(st,p){const U=unitsOf(st),a=p.birimler;return U.map((_,l)=>l).filter(l=>!a||a.includes(U[l].id))}
+function homeUnit(st,p){const U=unitsOf(st),L=allowedUnits(st,p),i=U.findIndex(u=>u.id===p.ana);return L.includes(i)?i:L[0]}
+
+function buildLP(st){
+  const D=dateList(st),S=st.shifts,E=st.staff,w=st.w,R=st.rules,U=unitsOf(st),multi=U.length>1;
+  const X={},byU={},xs=[],obj=[],cons=[];let ci=0;
+  const vs=(e,d,s)=>X[e+'|'+d+'|'+s]||[];              // e,d,s için tüm birimlerdeki değişkenler
+  const day=(e,d)=>S.flatMap((_,s)=>vs(e,d,s));
+  E.forEach((p,e)=>{const L=allowedUnits(st,p),home=homeUnit(st,p);if(!L.length)return;
+   D.forEach((dt,d)=>{
+    const r=st.req[p.id+'|'+dt];if(r==='I')return;
+    S.forEach((sh,s)=>{const arr=X[e+'|'+d+'|'+s]=[];
+      L.forEach(l=>{const n=`x_${e}_${d}_${s}_${l}`;arr.push(n);xs.push(n);(byU[d+'|'+s+'|'+l]=byU[d+'|'+s+'|'+l]||[]).push([e,n]);
+        obj.push([1+((p.kacin||[]).includes(sh.kod)?+w.tercih:0)+(multi&&l!==home?+w.birimDisi||0:0),n]);});});
+    const li=S.findIndex(sh=>sh.kod===r);
+    if(li>=0)cons.push({n:`lock_${e}_${d}`,t:vs(e,d,li).map(n=>[1,n]),op:'=',rhs:1});
+    cons.push({n:`one_${e}_${d}`,t:day(e,d).map(n=>[1,n]),op:'<=',rhs:1});
+  })});
+  D.forEach((dt,d)=>S.forEach((sh,s)=>U.forEach((un,l)=>{
+    const need=+((un.demand||[])[wdIdx(dt)]||[])[s]||0,u=`u_${d}_${s}_${l}`,o=`o_${d}_${s}_${l}`,xl=byU[d+'|'+s+'|'+l]||[];
+    obj.push([+w.fazla||0,o]);if(need>0)obj.push([w.eksik,u]);
+    cons.push({n:`cov_${d}_${s}_${l}`,t:[...xl.map(([,n])=>[1,n]),need>0?[1,u]:null,[-1,o]],op:'=',rhs:need});
+    if(need<=0||!R.kidemli||un.kidemli===false)return;
+    const k=`k_${d}_${s}_${l}`;obj.push([w.kidemli,k]);
+    cons.push({n:`sen_${d}_${s}_${l}`,t:[...xl.filter(([e])=>E[e].kidemli).map(([,n])=>[1,n]),[1,k]],op:'>=',rhs:1});
+  })));
+  const bad=[];S.forEach((a,i)=>S.forEach((b,j)=>{if(restGap(a,b)<R.dinlenme)bad.push([i,j])}));
+  E.forEach((p,e)=>{
+    for(let d=0;d+1<D.length;d++)bad.forEach(([i,j])=>{const a=vs(e,d,i),b=vs(e,d+1,j);
+      if(a.length&&b.length)cons.push({n:`rest_${ci++}`,t:[...a,...b].map(n=>[1,n]),op:'<=',rhs:1})});
+    const K=R.ardisik;
+    for(let d=0;d+K<D.length;d++){const t=[];for(let q=d;q<=d+K;q++)day(e,q).forEach(n=>t.push([1,n]));
+      cons.push({n:`cons_${e}_${d}`,t,op:'<=',rhs:K});}
+    for(let b=0;b*7<D.length;b++){const days=D.slice(b*7,b*7+7),len=days.length,t=[];let izin=0;
+      days.forEach((dt,o)=>{if(st.req[p.id+'|'+dt]==='I')izin++;day(e,b*7+o).forEach(n=>t.push([1,n]))});
+      cons.push({n:`max_${e}_${b}`,t,op:'<=',rhs:Math.ceil(p.maxH*len/7)});
+      const mn=Math.max(0,Math.floor(p.minH*len/7)-izin);
+      if(mn>0){const m=`m_${e}_${b}`;obj.push([w.minAlti,m]);cons.push({n:`min_${e}_${b}`,t:[...t,[1,m]],op:'>=',rhs:mn});}}
+  });
+  const fair=(tag,wt,pick)=>{
+    const rel=st.shifts.filter(sh=>D.some(dt=>pick(dt,sh)));
+    const el=E.map((p,e)=>[p,e]).filter(([p])=>p.maxH>0&&allowedUnits(st,p).length&&rel.some(sh=>!(p.kacin||[]).includes(sh.kod)));
+    if(el.length<2||wt<=0)return;
+    obj.push([wt,tag+'max'],[-wt,tag+'min']);
+    el.forEach(([p,e])=>{const t=[];D.forEach((dt,d)=>S.forEach((sh,s)=>{if(pick(dt,sh))vs(e,d,s).forEach(n=>t.push([1,n]))}));
+      cons.push({n:`${tag}hi_${e}`,t:[[1,tag+'max'],...t.map(([c,x])=>[-c,x])],op:'>=',rhs:0});
+      cons.push({n:`${tag}lo_${e}`,t:[[1,tag+'min'],...t.map(([c,x])=>[-c,x])],op:'<=',rhs:0});});};
+  fair('n',w.gece,(dt,sh)=>isNight(sh));
+  fair('h',w.haftasonu,(dt)=>wdIdx(dt)>=5);
+  // Birimler arası denge: birden fazla birime yetkili kişinin birimlerdeki vardiya sayılarının maks − min farkı
+  const bw=+w.birimDenge||0;
+  if(multi&&bw>0)E.forEach((p,e)=>{const L=allowedUnits(st,p);if(L.length<2||p.maxH<=0)return;
+    const per=Object.fromEntries(L.map(l=>[l,[]]));
+    D.forEach((_,d)=>S.forEach((_,s)=>vs(e,d,s).forEach(n=>per[+n.split('_')[4]].push(n))));
+    obj.push([bw,`bmax_${e}`],[-bw,`bmin_${e}`]);
+    L.forEach(l=>{const t=per[l].map(n=>[-1,n]);
+      cons.push({n:`bhi_${e}_${l}`,t:[[1,`bmax_${e}`],...t],op:'>=',rhs:0});
+      cons.push({n:`blo_${e}_${l}`,t:[[1,`bmin_${e}`],...t],op:'<=',rhs:0});});});
+  const term=([c,x],i)=>(c<0?'- ':'+ ')+Math.abs(c)+' '+x+(i%8===7?'\n  ':'');
+  const row=t=>t.filter(q=>q&&q[1]).map(term).join(' ');
+  const lp=['Minimize',' obj: '+row(obj),'Subject To',
+    ...cons.map(c=>{const r=row(c.t);return r?` ${c.n}: ${r} ${c.op} ${c.rhs}`:''}).filter(Boolean),
+    'Binaries',...xs.map(x=>' '+x),'End'].join('\n');
+  return {lp,X,D,U,nx:xs.length,nc:cons.length};
+}
+// sol: kişi|tarih → vardiya kodu; solB: kişi|tarih → birim id
+function readSolution(st,res,M){
+  const sol={},solB={},C=res.Columns||{};let short=0,senior=0;
+  st.staff.forEach((p,e)=>M.D.forEach((dt,d)=>st.shifts.forEach((sh,s)=>(M.X[e+'|'+d+'|'+s]||[]).forEach(n=>{
+    if(C[n]&&C[n].Primal>0.5){sol[p.id+'|'+dt]=sh.kod;solB[p.id+'|'+dt]=M.U[+n.split('_')[4]].id}}))));
+  for(const k in C){if(k[0]==='u'&&k[1]==='_')short+=Math.round(C[k].Primal||0);if(k[0]==='k'&&k[1]==='_')senior+=Math.round(C[k].Primal||0)}
+  return {sol,solB,short,senior};
+}
+/*MODEL-END*/
+{
+const $=id=>document.getElementById(id);
+const nextMonday=()=>{const t=new Date();const iso=new Date(Date.UTC(t.getFullYear(),t.getMonth(),t.getDate())).toISOString().slice(0,10);return addDays(iso,(7-wdIdx(iso))%7||7)};
+const sample=()=>{const start=nextMonday();const st={start,days:14,
+  shifts:[{kod:'S',ad:'Sabah',bas:7,bit:15,renk:'#ffb400'},{kod:'A',ad:'Akşam',bas:15,bit:23,renk:'#e6261f'},{kod:'G',ad:'Gece',bas:23,bit:7,renk:'#0a5cff'}],
+  units:[{id:'u1',kod:'AC',ad:'Acil',renk:'#00a05a',kidemli:true,demand:[[2,1,1],[2,1,1],[2,1,1],[2,1,1],[2,1,1],[1,1,1],[1,1,1]]},
+         {id:'u2',kod:'YB',ad:'Yoğun Bakım',renk:'#8b5cf6',kidemli:false,demand:[[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,0],[1,1,0]]}],
+  // [ad, kıdemli, haftalık min, haftalık maks, kaçındığı, çalışabildiği birimler (ilki ana birim)]
+  staff:[['Ayşe Yılmaz',1,4,5,[],['u1','u2']],['Mehmet Kaya',1,4,5,[],['u1']],['Zeynep Demir',0,4,5,['G'],['u1']],['Can Öztürk',1,4,5,[],['u2','u1']],
+    ['Elif Şahin',1,4,5,['A'],['u1']],['Emre Çelik',0,4,5,[],['u2']],['Selin Arslan',0,4,5,['G'],['u1','u2']],['Murat Aydın',0,4,5,[],['u2']],
+    ['Deniz Koç',0,2,3,['G'],['u1']],['Gizem Kurt',1,4,5,[],['u2','u1']],['Okan Yıldız',0,4,5,[],['u2']]]
+    .map(([ad,k,mn,mx,kc,b],i)=>({id:'p'+(i+1),ad,kidemli:!!k,minH:mn,maxH:mx,kacin:kc,birimler:b,ana:b[0]})),
+  rules:{ardisik:5,dinlenme:11,kidemli:true,sure:15},
+  w:{eksik:1000,fazla:100,kidemli:200,tercih:10,minAlti:20,gece:15,haftasonu:15,birimDisi:5,birimDenge:5},
+  req:{},sol:{},solB:{},res:null,nextId:12,nextU:3,renkModu:'vardiya'};
+  st.req['p3|'+addDays(start,2)]='I';st.req['p3|'+addDays(start,3)]='I';st.req['p6|'+addDays(start,9)]='I';st.req['p1|'+addDays(start,0)]='G';
+  return st};
+// Vardiya ve birimler için ortak renk paleti (renk seçicide öneri olarak da gösterilir).
+const PALETTE=['#ffb400','#e6261f','#0a5cff','#00a05a','#8b5cf6','#ec4899','#0ea5a4','#f97316','#64748b','#a16207'];
+const isHex=c=>/^#[0-9a-f]{6}$/i.test(c||'');
+const nextColor=used=>PALETTE.find(c=>!used.includes(c))||PALETTE[used.length%PALETTE.length];
+const usedColors=s=>[...s.shifts,...(s.units||[])].map(x=>x.renk).filter(Boolean);
+// Arka plan rengine göre okunaklı yazı rengi (WCAG göreli parlaklık).
+const textOn=hex=>{const n=parseInt(hex.slice(1),16),ch=v=>{v/=255;return v<=0.03928?v/12.92:((v+0.055)/1.055)**2.4};
+  const L=0.2126*ch(n>>16&255)+0.7152*ch(n>>8&255)+0.0722*ch(n&255);return (L+0.05)/0.05>1.05/(L+0.05)?'#14110a':'#ffffff'};
+const cleanKod=v=>String(v).trim().toLocaleUpperCase('tr').replace(/[^\p{L}\p{N}]/gu,'').slice(0,3);
+// Eski kayıtları güncel yapıya taşır: tek st.demand → tek birim; eksik renkler ve ağırlıklar.
+const zeroDemand=()=>Array.from({length:7},()=>st.shifts.map(()=>0));
+const migrate=s=>{
+  if(!s.units||!s.units.length)s.units=[{id:'u1',kod:'B1',ad:'Birim 1',kidemli:true,demand:s.demand||Array.from({length:7},()=>s.shifts.map(()=>0))}];
+  delete s.demand;s.solB=s.solB||{};s.nextU=s.nextU||s.units.length+1;
+  const def={S:'#ffb400',A:'#e6261f',G:'#0a5cff'};
+  s.shifts.forEach(x=>{if(!isHex(x.renk))x.renk=def[x.kod]&&!usedColors(s).includes(def[x.kod])?def[x.kod]:nextColor(usedColors(s))});
+  s.units.forEach(x=>{if(!isHex(x.renk))x.renk=nextColor(usedColors(s))});
+  if(s.renkModu!=='birim')s.renkModu='vardiya';
+  s.w=s.w||{};if(s.w.birimDisi==null)s.w.birimDisi=5;if(s.w.birimDenge==null)s.w.birimDenge=5;return s};
+let st;try{st=JSON.parse(localStorage.getItem('vardiya-v1'))}catch(e){}
+st=(!st||!st.shifts)?sample():migrate(st);
+let tab='staff',highs=null,stale=!st.res,fresh=false;
+const save=()=>{try{localStorage.setItem('vardiya-v1',JSON.stringify(st))}catch(e){}};
+const changed=()=>{if(st.res){stale=true}save();render()};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hh=h=>String(h).padStart(2,'0');
+const multi=()=>st.units.length>1;
+const unitById=id=>st.units.find(u=>u.id===id);
+// Hücrenin birimi: çözümden; yoksa kişi tek birime yetkiliyse o birim.
+const unitAt=(p,dt)=>{const b=st.solB[p.id+'|'+dt];if(b&&unitById(b))return b;const L=allowedUnits(st,p);return L.length===1?st.units[L[0]].id:null};
+const shiftByKod=k=>st.shifts.find(s=>s.kod===k);
+const dot=c=>`<span class="dot" style="background:${esc(c)}"></span>`;
+const swatch=(attr,i,c,label)=>`<input type="color" list="pal" ${attr}="renk" data-i="${i}" value="${esc(c)}" aria-label="${esc(label)} rengi" class="sw">`;
+// Kişinin birimlerdeki vardiya sayıları (çözüm + birimi belli kilitler); yalnızca birden fazla birime yetkili kişiler.
+const unitCounts=p=>{const L=allowedUnits(st,p);if(L.length<2)return null;const c=Object.fromEntries(L.map(l=>[st.units[l].id,0]));
+  dateList(st).forEach(dt=>{const r=st.req[p.id+'|'+dt];if(r==='I')return;if(!(r||st.sol[p.id+'|'+dt]))return;const u=unitAt(p,dt);if(u in c)c[u]++});return c};
+
+function renderStrip(){
+  const segs=[];for(let h=0;h<24;h++){const s=st.shifts.find(x=>{const e=x.bas+shiftLen(x);return (h>=x.bas&&h<e)||(h+24>=x.bas&&h+24<e)});
+    const k=s?s.kod:'-';if(segs.length&&segs[segs.length-1].k===k)segs[segs.length-1].n++;else segs.push({k,n:1,h})}
+  $('strip').innerHTML=segs.map(g=>`<span style="width:${g.n/24*100}%;background:${g.k==='-'?'var(--line)':esc(shiftByKod(g.k).renk)}"></span>`).join('');
+  $('ticks').innerHTML=segs.map(g=>{const s=st.shifts.find(x=>x.kod===g.k);return `<span style="width:${g.n/24*100}%">${hh(g.h)}:00${s&&g.n>=4?' '+esc(s.ad):''}</span>`}).join('');
+}
+function renderGrid(){
+  const D=dateList(st);
+  if(!st.staff.length){$('grid').innerHTML='<tr><td class="empty">Personel ekleyerek başlayın.</td></tr>';$('kpis').innerHTML='';return}
+  const head='<thead><tr><th class="nm">Personel</th>'+D.map(dt=>`<th class="${wdIdx(dt)>=5?'we':''}">${DAYN[wdIdx(dt)]}<b>${+dt.slice(8)}</b></th>`).join('')+'<th>Vrd</th><th>Saat</th><th>Gece</th><th>HS</th>'+(multi()?'<th title="Birimlerdeki vardiya sayıları">Birim</th>':'')+'</tr></thead>';
+  const cnt={},M=multi();let disi=0;const len=Object.fromEntries(st.shifts.map(s=>[s.kod,shiftLen(s)]));
+  const rows=st.staff.map((p,pi)=>{let n=0,h=0,g=0,hs=0;const home=(st.units[homeUnit(st,p)]||{}).id;
+    const cells=D.map(dt=>{const key=p.id+'|'+dt,r=st.req[key];const lockS=r&&r!=='I';
+      const code=r==='I'?'I':(lockS?r:(st.sol[key]||''));
+      const ub=code&&code!=='I'?unitAt(p,dt):null,U=ub&&unitById(ub);
+      if(code&&code!=='I'){n++;h+=len[code]||0;if(isNight(st.shifts.find(s=>s.kod===code)||{bas:0,bit:1}))g++;if(wdIdx(dt)>=5)hs++;
+        if(ub){const c=dt+'|'+code+'|'+ub;cnt[c]=(cnt[c]||0)+1;if(M&&ub!==home)disi++}}
+      const cls=['cell',code==='I'?'I':'',M&&U?'mu':'',lockS?'lock':'',(!r&&code&&stale)?'stale':'',(!r&&code&&fresh)?'fresh':''].join(' ');
+      // Hücre rengi seçilen boyuttan (vardiya/birim); diğer boyutun rengi alt şerit olarak gösterilir.
+      const sc=code&&code!=='I'?shiftByKod(code):null;let bg=sc&&sc.renk,bar=null;
+      if(sc&&M&&U){if(st.renkModu==='birim'){bg=U.renk;bar=sc.renk}else bar=U.renk}
+      const sty=bg?` style="background:${esc(bg)};color:${textOn(bg)}${bar?`;box-shadow:inset 0 -5px 0 ${esc(bar)}`:''}"`:'';
+      return `<td class="${wdIdx(dt)>=5?'we':''}"><button class="${cls}"${sty} data-k="${key}" aria-label="${esc(p.ad)} ${dt}: ${code==='I'?'izin':code||'boş'}${M&&U?' '+esc(U.ad):''}">${code==='I'?'izin':(M&&U?`<i>${code}</i><b>${esc(U.kod)}</b>`:code)}</button></td>`}).join('');
+    return `<tr><th class="nm"><button class="nmb" data-p="${pi}" title="Personel ayarlarını aç">${esc(p.ad)}</button>${p.kidemli?'<small>kıdemli</small>':''}</th>${cells}<td class="sum">${n}</td><td class="sum">${h}</td><td class="sum">${g}</td><td class="sum">${hs}</td>${M?`<td class="sum">${(c=>c?Object.entries(c).map(([id,v])=>`<span title="${esc(unitById(id).ad)}">${esc(unitById(id).kod)} ${v}</span>`).join(' · '):'')(unitCounts(p))}</td>`:''}</tr>`}).join('');
+  let shortTot=0;
+  const cov=st.units.map(u=>st.shifts.map((s,si)=>`<tr class="cov${M&&si===0?' ufirst':''}"><th class="nm">${M?dot(u.renk)+esc(u.kod)+' · ':''}${dot(s.renk)}${esc(s.ad)} kapsama</th>`+D.map(dt=>{
+    const need=+((u.demand[wdIdx(dt)]||[])[si])||0,have=cnt[dt+'|'+s.kod+'|'+u.id]||0;if(have<need)shortTot+=need-have;
+    return `<td class="${wdIdx(dt)>=5?'we':''} ${have<need?'short':''}">${have}/${need}</td>`}).join('')+`<td colspan="${M?5:4}"></td></tr>`).join('')).join('');
+  $('grid').innerHTML=head+'<tbody>'+rows+cov+'</tbody>';
+  const nightEl=st.staff.filter(p=>st.shifts.some(s=>isNight(s)&&!(p.kacin||[]).includes(s.kod)));
+  const nights=(nightEl.length?nightEl:st.staff).map(p=>D.filter(dt=>{const c=st.req[p.id+'|'+dt]&&st.req[p.id+'|'+dt]!=='I'?st.req[p.id+'|'+dt]:st.sol[p.id+'|'+dt];const s=st.shifts.find(x=>x.kod===c);return s&&isNight(s)}).length);
+  const pref=st.staff.reduce((a,p)=>a+D.filter(dt=>(p.kacin||[]).includes(st.sol[p.id+'|'+dt])).length,0);
+  const r=st.res;
+  const gaps=M?st.staff.map(unitCounts).filter(Boolean).map(c=>Math.max(...Object.values(c))-Math.min(...Object.values(c))):[];
+  $('kpis').innerHTML=[['Eksik vardiya',shortTot,shortTot?'short':''],['Tercih ihlali',r?pref:'–'],...(st.rules.kidemli?[['Kıdemlisiz vardiya',r?(r.senior??0):'–',r&&r.senior?'short':'']]:[]),['Gece dağılımı (kişi başı)',r?`${Math.min(...nights)}–${Math.max(...nights)}`:'–'],
+    ...(M?[['Ana birim dışı atama',r?disi:'–'],['Birim dengesi (en büyük fark)',r?gaps.length?Math.max(...gaps):0:'–']]:[]),['Çözüm süresi',r?`${r.time.toFixed(1)} sn`:'–']]
+    .map(([a,b,c])=>`<div class="kpi"><small>${a}</small><b class="${c||''}">${b}</b></div>`).join('');
+  $('legend').innerHTML=st.shifts.map(s=>`<span>${dot(s.renk)}${esc(s.kod)} = ${esc(s.ad)} ${hh(s.bas)}–${hh(s.bit)}</span>`).join('')+
+    (M?st.units.map(u=>`<span>${dot(u.renk)}<b>${esc(u.kod)}</b> = ${esc(u.ad)}</span>`).join('')+
+      `<span>Hücre rengi ${st.renkModu==='birim'?'birimi, alt şerit vardiyayı':'vardiyayı, alt şerit birimi'} gösterir</span>`:'')+
+    '<span>● sabit (kilitli) atama</span><span>Hücreye tıkla: izin → sabit vardiya → temizle</span>';
+}
+function renderPanel(){
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
+  let h='';
+  if(tab==='staff'){
+    const M=multi();
+    h=`<table class="ed stack"><thead><tr><th>Ad</th><th>Kıdemli</th><th>Haftalık min</th><th>Haftalık maks</th><th>Kaçındığı vardiyalar<small>tıkla: ✕ kaçınır</small></th>${M?'<th>Çalışabildiği birimler<small>tıkla: ✓ çalışabilir</small></th><th>Ana birim</th>':''}<th></th></tr></thead><tbody>`+
+    st.staff.map((p,i)=>{const L=allowedUnits(st,p),home=homeUnit(st,p);return `<tr data-row="${i}"><td data-l="Ad"><input type="text" data-s="ad" data-i="${i}" value="${esc(p.ad)}"></td>
+      <td data-l="Kıdemli"><input type="checkbox" data-s="kidemli" data-i="${i}" ${p.kidemli?'checked':''} style="width:22px;height:22px"></td>
+      <td data-l="Haftalık min"><input type="number" min="0" max="7" data-s="minH" data-i="${i}" value="${p.minH}"></td>
+      <td data-l="Haftalık maks"><input type="number" min="0" max="7" data-s="maxH" data-i="${i}" value="${p.maxH}"></td>
+      <td data-l="Kaçındığı vardiyalar"><div class="chipset">${st.shifts.map(s=>{const on=(p.kacin||[]).includes(s.kod);return `<button class="chip avoid" data-kacin="${s.kod}" data-i="${i}" aria-pressed="${on}" title="${esc(s.ad)}: ${on?'kaçınıyor — kaldırmak için tıkla':'kaçınmıyor — eklemek için tıkla'}">${s.kod}</button>`}).join('')}</div></td>
+      ${M?`<td data-l="Çalışabildiği birimler"><div class="chipset">${st.units.map((u,l)=>{const on=L.includes(l);return `<button class="chip on" data-birim="${u.id}" data-i="${i}" aria-pressed="${on}" title="${esc(u.ad)}: ${on?'çalışabilir — çıkarmak için tıkla':'çalışamaz — eklemek için tıkla'}">${esc(u.kod)}</button>`}).join('')}</div></td>
+      <td data-l="Ana birim"><select data-s="ana" data-i="${i}">${L.map(l=>`<option value="${st.units[l].id}" ${l===home?'selected':''}>${esc(st.units[l].ad)}</option>`).join('')}</select></td>`:''}
+      <td data-l=""><button class="btn" data-del="${i}">Sil</button></td></tr>`}).join('')+
+    `</tbody></table><p><button class="btn" id="add">+ Personel ekle</button></p><p class="note">Haftalık maks kesin kısıttır; haftalık min, altında kalınırsa cezalandırılan esnek bir hedeftir (izin günleri min'den düşülür).<br><b>Kaçındığı vardiyalar</b> kişinin tercih etmediği vardiya türleridir (ör. gece çalışmak istemeyen biri için G). Kesin yasak değildir: atama yapılabilir ama “Kaçınılan vardiyaya atama” ağırlığı kadar cezalıdır, bu yüzden çözücü mümkünse başka birini seçer. Kesin olarak çalışmaması gereken günler için ızgarada hücreye tıklayıp izin girin.${M?'<br><b>Çalışabildiği birimler</b>: kişi yalnızca işaretli birimlere atanabilir (kesin kural); ana birimi dışındaki atamalar küçük bir cezayla mümkündür. Haftalık sınırlar, dinlenme ve art arda gün kuralları kişinin tüm birimlerdeki toplam çalışmasına uygulanır.':''}</p>`;
+  }else if(tab==='units'){
+    h=`<table class="ed stack"><thead><tr><th>Renk</th><th>Kısa kod</th><th>Ad</th><th>Her vardiyada kıdemli</th><th></th></tr></thead><tbody>`+
+    st.units.map((u,i)=>`<tr><td data-l="Renk">${swatch('data-un',i,u.renk,u.ad)}</td><td data-l="Kısa kod"><input type="text" maxlength="3" data-un="kod" data-i="${i}" value="${esc(u.kod)}" style="width:72px;min-width:0"></td>
+      <td data-l="Ad"><input type="text" data-un="ad" data-i="${i}" value="${esc(u.ad)}"></td>
+      <td data-l="Kıdemli"><input type="checkbox" data-un="kidemli" data-i="${i}" ${u.kidemli!==false?'checked':''} style="width:22px;height:22px"></td>
+      <td data-l=""><button class="btn" data-delu="${i}" ${st.units.length<2?'disabled':''}>Sil</button></td></tr>`).join('')+
+    `</tbody></table><p><button class="btn" id="addu">+ Birim ekle</button></p><p class="note">Aynı ekip birden fazla birime (ör. hastanenin iki bölümü) ortak olarak çizelgelenebilir. Her birimin ihtiyacı ayrı girilir; kişinin hangi birimlerde çalışabileceği Personel sekmesinden seçilir. Kıdemli kuralı, “Kurallar” sekmesinde açıksa yalnızca işaretli birimlerde uygulanır. Birim ekleyip silmek mevcut çözümü temizler. Renkler vardiyalarla ortak paletten seçilir; ızgarada hücre rengini birime göre göstermek için çizelgenin üstündeki “Hücre rengi” seçeneğini kullanın.</p>`;
+  }else if(tab==='demand'){
+    const M=multi();
+    h=st.units.map((u,ui)=>`${M?`<h2>${dot(u.renk)}${esc(u.ad)} <small style="color:var(--mute);font-weight:600">${esc(u.kod)}</small></h2>`:''}<table class="ed" style="margin-bottom:24px"><thead><tr><th>Gün</th>${st.shifts.map(s=>`<th>${dot(s.renk)}${esc(s.ad)}</th>`).join('')}</tr></thead><tbody>`+
+    DAYN.map((d,i)=>`<tr><td>${d}</td>${st.shifts.map((s,j)=>`<td><input type="number" min="0" max="50" data-u="${ui}" data-dem="${i}" data-j="${j}" value="${(u.demand[i]||[])[j]||0}" aria-label="${esc(u.ad)} ${d} ${esc(s.ad)}"></td>`).join('')}</tr>`).join('')+
+    `</tbody></table>`).join('')+`<p class="note">Her gün ve vardiya için gereken minimum personel sayısı${M?' (birim başına)':''}. Karşılanamayan ihtiyaç “eksik” olarak raporlanır ve yüksek cezayla minimize edilir.</p>`;
+  }else if(tab==='shifts'){
+    h=`<table class="ed stack"><thead><tr><th>Renk</th><th>Kısa kod</th><th>Ad</th><th>Başlangıç saati</th><th>Bitiş saati</th><th>Süre</th><th></th></tr></thead><tbody>`+
+    st.shifts.map((s,i)=>`<tr><td data-l="Renk">${swatch('data-sh',i,s.renk,s.ad)}</td>
+      <td data-l="Kısa kod"><input type="text" maxlength="3" data-sh="kod" data-i="${i}" value="${esc(s.kod)}" style="width:72px;min-width:0"></td>
+      <td data-l="Ad"><input type="text" data-sh="ad" data-i="${i}" value="${esc(s.ad)}"></td>
+      <td data-l="Başlangıç"><input type="number" min="0" max="23" data-sh="bas" data-i="${i}" value="${s.bas}"></td>
+      <td data-l="Bitiş"><input type="number" min="0" max="23" data-sh="bit" data-i="${i}" value="${s.bit}"></td>
+      <td data-l="Süre">${shiftLen(s)} sa${isNight(s)?' · gece':''}</td>
+      <td data-l=""><button class="btn" data-delsh="${i}" ${st.shifts.length<2?'disabled':''}>Sil</button></td></tr>`).join('')+
+    `</tbody></table><p><button class="btn" id="addsh">+ Vardiya ekle</button></p><p class="note" id="shnote">Kısa kod en fazla 3 harf/rakamdır, benzersiz olmalıdır ve “I” izin için ayrılmıştır; kod değişince kilitler ve kaçınma tercihleri de güncellenir. Gece yarısını geçen vardiya (bitiş ≤ başlangıç) gece vardiyası sayılır. Ardışık günlerdeki vardiya çiftleri arasındaki dinlenme süresi bu saatlerden hesaplanır. Vardiya silmek o vardiyanın ihtiyaçlarını, kilitlerini ve mevcut çözümü siler.</p>`;
+  }else if(tab==='rules'){
+    const W=[['eksik','Eksik personel (kişi-vardiya başına)'],['fazla','İhtiyaç fazlası atama (kişi-vardiya başına)'],['kidemli','Kıdemlisiz vardiya'],['tercih','Kaçınılan vardiyaya atama'],['minAlti','Haftalık min altında kalma'],['gece','Gece adaleti (maks − min)'],['haftasonu','Hafta sonu adaleti (maks − min)'],['birimDisi','Ana birim dışına atama (birden fazla birim varsa)'],['birimDenge','Birimler arası denge (kişi başı maks − min)']];
+    h=`<div class="cols"><div><h2>Kesin kurallar</h2>
+      <p><label class="f">Art arda en fazla çalışma günü <input type="number" min="1" max="14" data-r="ardisik" value="${st.rules.ardisik}"></label></p>
+      <p><label class="f">İki vardiya arası min dinlenme (saat) <input type="number" min="0" max="24" data-r="dinlenme" value="${st.rules.dinlenme}"></label></p>
+      <p><label class="f"><input type="checkbox" data-r="kidemli" ${st.rules.kidemli?'checked':''} style="width:22px;height:22px"> Her vardiyada en az bir kıdemli (esnek, cezalı)</label></p>
+      <p><label class="f">Çözüm süre sınırı (sn) <input type="number" min="1" max="120" data-r="sure" value="${st.rules.sure}"></label></p></div>
+      <div><h2>Amaç fonksiyonu ağırlıkları</h2>${W.map(([k,l])=>`<p><label class="f" style="justify-content:space-between">${l} <input type="number" min="0" data-w="${k}" value="${st.w[k]}"></label></p>`).join('')}
+      <p class="note">Amaç, ağırlıklı ceza toplamını minimize eder (her atamaya ayrıca 1 birim maliyet eklenir). Fazla atama cezası adalet ağırlıklarından büyük tutulmazsa model, dağılımı eşitlemek için ihtiyaçtan fazla kişi atayabilir.<br><b>Birimler arası denge</b>: birden fazla birime yetkili her kişi için, birimlerdeki vardiya sayılarının en büyüğü ile en küçüğü arasındaki farkı cezalandırır (ör. Acil 6 · Yoğun Bakım 2 → fark 4). <b>Ana birim dışına atama</b> ise kişiyi kendi birimine çeker; ikisi ters yönde çalışır. Bir vardiyayı ana birimden diğerine kaydırmak farkı 2 azaltır, bu yüzden denge ağırlığı × 2, ana birim cezasından büyükse model eşit dağılımı tercih eder. Tam eşitlik için ana birim cezasını 0 yapın.</p></div></div>`;
+  }else{
+    h=`<div class="cols"><div><h2>Dışa aktar</h2><p><button class="btn" id="cpcsv">Çizelgeyi CSV olarak kopyala</button> <button class="btn" id="cpjson">Girdileri JSON olarak kopyala</button></p><p class="note" id="cpnote">Kopyalanan metni Excel'e veya bir dosyaya yapıştırabilirsiniz.</p></div>
+      <div><h2>İçe aktar</h2><p><input type="file" id="load" accept=".json,application/json"></p><textarea id="paste" placeholder="Veya JSON metnini buraya yapıştırın"></textarea><p><button class="btn" id="usepaste">Yapıştırılanı yükle</button> <button class="btn" id="reset">Örnek veriye dön</button></p><p class="note" id="loadnote"></p></div></div>`;
+  }
+  $('panel').innerHTML=h;
+}
+function render(){$('start').value=st.start;$('days').value=st.days;$('colorByWrap').hidden=!multi();$('colorBy').value=st.renkModu;renderStrip();renderGrid();renderPanel()}
+function setStatus(t,err){$('status').className='status'+(err?' err':'');$('status').innerHTML=t}
+
+async function solve(){
+  if(!highs)return;const btn=$('solve');btn.disabled=true;btn.textContent='Çözülüyor…';
+  setStatus('Model kuruluyor ve çözülüyor…');await new Promise(r=>setTimeout(r,30));
+  try{const M=buildLP(st),t0=performance.now();
+    const res=highs.solve(M.lp,{output_flag:false,time_limit:+st.rules.sure||15,mip_rel_gap:0.005});
+    const time=(performance.now()-t0)/1000;
+    if(res.Status==='Infeasible'){setStatus('<b>Uygun çözüm yok.</b> Kilitli atamalar kesin kurallarla (dinlenme, art arda gün, haftalık maks) çelişiyor olabilir.',true)}
+    else{const out=readSolution(st,res,M);
+      if(!Object.keys(out.sol).length&&res.Status!=='Optimal'){setStatus(`<b>${esc(res.Status)}</b> — çözüm bulunamadı.`,true)}
+      else{st.sol=out.sol;st.solB=out.solB;st.res={nx:M.nx,nc:M.nc,time,status:res.Status,obj:res.ObjectiveValue,senior:out.senior};stale=false;fresh=true;
+        setStatus(`<b>${res.Status==='Optimal'?'Optimal':'Süre doldu, en iyi bulunan çözüm'}</b> · amaç ${Math.round(res.ObjectiveValue)} · ${M.nx} değişken, ${M.nc} kısıt`)}}
+  }catch(e){setStatus('<b>Çözücü hatası:</b> '+esc(e.message||e),true);try{highs=await loadHighs()}catch(_){}}
+  save();renderGrid();fresh=false;btn.disabled=false;btn.textContent='Çizelgele';
+}
+const loadHighs=()=>Module({locateFile:f=>'vendor/'+f});
+
+$('solve').addEventListener('click',solve);
+const clearSol=()=>{st.sol={};st.solB={};st.res=null};
+$('start').addEventListener('change',e=>{if(e.target.value){st.start=e.target.value;clearSol();changed()}});
+$('days').addEventListener('change',e=>{st.days=+e.target.value;clearSol();changed()});
+$('grid').addEventListener('click',e=>{const nb=e.target.closest('.nmb');
+  if(nb){tab='staff';renderPanel();const row=document.querySelector(`#panel tr[data-row="${nb.dataset.p}"]`);
+    if(row){row.scrollIntoView({behavior:'smooth',block:'center'});row.classList.add('flash');const f=row.querySelector('input[type=text]');f&&f.focus({preventScroll:true})}return}
+  const b=e.target.closest('.cell');if(!b)return;const k=b.dataset.k;
+  const seq=['','I',...st.shifts.map(s=>s.kod)];const cur=st.req[k]||'';const nx=seq[(seq.indexOf(cur)+1)%seq.length];
+  if(nx)st.req[k]=nx;else delete st.req[k];changed()});
+$('tabs').addEventListener('click',e=>{const b=e.target.closest('.tab');if(b){tab=b.dataset.tab;renderPanel()}});
+// Vardiya kodu değişince kilitler, kaçınma tercihleri ve çözüm de yeni koda taşınır.
+function renameShift(sh,v){const old=sh.kod;if(old===v)return;sh.kod=v;
+  for(const k in st.req)if(st.req[k]===old)st.req[k]=v;
+  for(const k in st.sol)if(st.sol[k]===old)st.sol[k]=v;
+  st.staff.forEach(p=>{if(p.kacin)p.kacin=p.kacin.map(x=>x===old?v:x)})}
+$('pal').innerHTML=PALETTE.map(c=>`<option value="${c}"></option>`).join('');
+$('colorBy').addEventListener('change',e=>{st.renkModu=e.target.value;save();renderGrid()});
+const panel=$('panel');
+panel.addEventListener('change',e=>{const t=e.target,d=t.dataset,num=Math.max(0,+t.value||0);
+  if(d.s){const p=st.staff[+d.i];p[d.s]=t.type==='checkbox'?t.checked:(t.type==='number'?num:t.value)}
+  else if(d.dem!==undefined){const u=st.units[+d.u];u.demand[+d.dem]=u.demand[+d.dem]||[];u.demand[+d.dem][+d.j]=num}
+  else if(d.un){const u=st.units[+d.i];
+    if(d.un==='kidemli')u.kidemli=t.checked;
+    else if(d.un==='renk'){if(isHex(t.value))u.renk=t.value}
+    else if(d.un==='kod'){const v=cleanKod(t.value);if(!v||st.units.some((x,j)=>j!==+d.i&&x.kod===v)){renderPanel();return}u.kod=v}
+    else{const v=t.value.trim();if(!v){renderPanel();return}u.ad=v}}
+  else if(d.sh){const sh=st.shifts[+d.i];
+    if(d.sh==='ad')sh.ad=t.value;
+    else if(d.sh==='renk'){if(isHex(t.value))sh.renk=t.value}
+    else if(d.sh==='kod'){const v=cleanKod(t.value);
+      if(!v||v==='I'||v==='İ'||st.shifts.some((x,j)=>j!==+d.i&&x.kod===v)){renderPanel();$('shnote').innerHTML='<b class="short">Kod kullanılamaz:</b> boş, “I” ya da başka bir vardiyanın koduyla aynı olamaz.';return}
+      renameShift(sh,v)}
+    else sh[d.sh]=Math.min(23,num)}
+  else if(d.r)st.rules[d.r]=t.type==='checkbox'?t.checked:num;
+  else if(d.w)st.w[d.w]=num;
+  else if(t.id==='load'&&t.files[0]){t.files[0].text().then(importJSON);return}
+  else return;
+  changed()});
+function importJSON(txt){try{const o=JSON.parse(txt);if(!o.shifts||!o.staff||!(o.demand||o.units))throw new Error('eksik alan');
+  const b=sample();if(!o.units){delete b.units;delete b.nextU}
+  st=migrate(Object.assign(b,o,{sol:{},solB:{},res:null,w:Object.assign(b.w,o.w||{}),rules:Object.assign(b.rules,o.rules||{})}));stale=true;save();render();$('loadnote').textContent='Yüklendi.'}catch(e){$('loadnote').textContent='JSON okunamadı: '+e.message}}
+async function copy(txt){try{await navigator.clipboard.writeText(txt);$('cpnote').textContent='Panoya kopyalandı.'}catch(e){$('paste')&&($('paste').value=txt);$('cpnote').textContent='Pano erişimi yok; metin sağdaki kutuya yazıldı.'}}
+panel.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const d=t.dataset;
+  if(d.kacin){const p=st.staff[+d.i];p.kacin=p.kacin||[];p.kacin=p.kacin.includes(d.kacin)?p.kacin.filter(x=>x!==d.kacin):[...p.kacin,d.kacin];changed()}
+  else if(d.del!==undefined){const p=st.staff[+d.del];st.staff.splice(+d.del,1);for(const k in st.req)if(k.startsWith(p.id+'|'))delete st.req[k];changed()}
+  else if(t.id==='add'){st.staff.push({id:'p'+(st.nextId++),ad:'Yeni personel',kidemli:false,minH:4,maxH:5,kacin:[]});changed()}
+  else if(d.birim){const p=st.staff[+d.i];let a=allowedUnits(st,p).map(l=>st.units[l].id);
+    a=a.includes(d.birim)?a.filter(x=>x!==d.birim):st.units.map(u=>u.id).filter(id=>id===d.birim||a.includes(id));
+    if(!a.length)return;p.birimler=a;if(!a.includes(p.ana))p.ana=a[0];changed()}
+  else if(t.id==='addu'){const n=st.nextU++;st.units.push({id:'u'+n,kod:'B'+n,ad:'Yeni birim',renk:nextColor(usedColors(st)),kidemli:true,demand:zeroDemand()});clearSol();changed()}
+  else if(t.id==='addsh'){let n=st.shifts.length+1;while(st.shifts.some(x=>x.kod==='V'+n))n++;
+    st.shifts.push({kod:'V'+n,ad:'Yeni vardiya',bas:9,bit:17,renk:nextColor(usedColors(st))});
+    st.units.forEach(u=>{for(let i=0;i<7;i++){u.demand[i]=u.demand[i]||[];u.demand[i][st.shifts.length-1]=0}});clearSol();changed()}
+  else if(d.delsh!==undefined){if(st.shifts.length<2)return;const j=+d.delsh,old=st.shifts.splice(j,1)[0].kod;
+    st.units.forEach(u=>u.demand.forEach(row=>row.splice(j,1)));
+    for(const k in st.req)if(st.req[k]===old)delete st.req[k];
+    st.staff.forEach(p=>{if(p.kacin)p.kacin=p.kacin.filter(x=>x!==old)});clearSol();changed()}
+  else if(d.delu!==undefined){if(st.units.length<2)return;const u=st.units.splice(+d.delu,1)[0];
+    st.staff.forEach(p=>{if(p.birimler){p.birimler=p.birimler.filter(x=>x!==u.id);if(!p.birimler.length)delete p.birimler}if(p.ana===u.id)delete p.ana});clearSol();changed()}
+  else if(t.id==='cpcsv'){const D=dateList(st),M=multi();copy(['Personel,'+D.join(','),...st.staff.map(p=>[p.ad,...D.map(dt=>{const r=st.req[p.id+'|'+dt];if(r==='I')return 'izin';
+    const c=r||st.sol[p.id+'|'+dt]||'',u=c&&M&&unitById(unitAt(p,dt));return c+(u?'/'+u.kod:'')})].map(x=>/[",]/.test(x)?`"${x.replace(/"/g,'""')}"`:x).join(','))].join('\n'))}
+  else if(t.id==='cpjson'){const {sol,solB,res,...inp}=st;copy(JSON.stringify(inp,null,1))}
+  else if(t.id==='usepaste')importJSON($('paste').value);
+  else if(t.id==='reset'){st=sample();stale=true;save();render()}});
+
+render();
+loadHighs().then(h=>{highs=h;$('solve').disabled=false;$('solve').textContent='Çizelgele';if(!st.res)solve()})
+  .catch(e=>{$('solve').textContent='Çözücü yüklenemedi';setStatus('<b>HiGHS yüklenemedi:</b> '+esc(e.message||e),true)});
+}
+</script>
+</body>
+</html>

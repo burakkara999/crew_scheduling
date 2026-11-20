@@ -1,0 +1,14 @@
+{
+  "name": "vardiya-planlayici",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tarayıcıda çalışan, HiGHS (WebAssembly) tabanlı personel çizelgeleme prototipi",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "scripts": {
+    "test": "node test/test-model.js",
+    "serve": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "highs": "1.15.4"
+  }
+}
