@@ -142,6 +142,10 @@ function restGap(a,b){const endA=a.bas+shiftLen(a);return 24+b.bas-endA}
 // Birimler (bölümler). Eski veride units yoksa tek birim olarak st.demand kullanılır.
 function unitsOf(st){return st.units&&st.units.length?st.units:[{id:'u1',kod:'',ad:'',kidemli:true,demand:st.demand}]}
 function allowedUnits(st,p){const U=unitsOf(st),a=p.birimler;return U.map((_,l)=>l).filter(l=>!a||a.includes(U[l].id))}
+// Kıdem seviyesi (1 = en düşük). Eski veride yalnızca kidemli: true/false varsa 2/1 sayılır.
+function levelOf(p){return p.kidem!=null?Math.max(1,Math.round(+p.kidem)||1):(p.kidemli?2:1)}
+// Birimin kıdem şartı: her vardiyada en az n kişi, seviyesi en az lv olan. lv = 0 → şart yok.
+function unitSenior(un){return {lv:un.minKidem!=null?Math.max(0,Math.round(+un.minKidem)||0):(un.kidemli===false?0:2),n:un.kidemSayi!=null?Math.max(0,Math.round(+un.kidemSayi)||0):1}}
 function homeUnit(st,p){const U=unitsOf(st),L=allowedUnits(st,p),i=U.findIndex(u=>u.id===p.ana);return L.includes(i)?i:L[0]}
 
 function buildLP(st){
@@ -163,9 +167,9 @@ function buildLP(st){
     const need=+((un.demand||[])[wdIdx(dt)]||[])[s]||0,u=`u_${d}_${s}_${l}`,o=`o_${d}_${s}_${l}`,xl=byU[d+'|'+s+'|'+l]||[];
     obj.push([+w.fazla||0,o]);if(need>0)obj.push([w.eksik,u]);
     cons.push({n:`cov_${d}_${s}_${l}`,t:[...xl.map(([,n])=>[1,n]),need>0?[1,u]:null,[-1,o]],op:'=',rhs:need});
-    if(need<=0||!R.kidemli||un.kidemli===false)return;
+    const sr=unitSenior(un);if(need<=0||!R.kidemli||sr.lv<=0||sr.n<=0)return;
     const k=`k_${d}_${s}_${l}`;obj.push([w.kidemli,k]);
-    cons.push({n:`sen_${d}_${s}_${l}`,t:[...xl.filter(([e])=>E[e].kidemli).map(([,n])=>[1,n]),[1,k]],op:'>=',rhs:1});
+    cons.push({n:`sen_${d}_${s}_${l}`,t:[...xl.filter(([e])=>levelOf(E[e])>=sr.lv).map(([,n])=>[1,n]),[1,k]],op:'>=',rhs:Math.min(sr.n,need)});
   })));
   const bad=[];S.forEach((a,i)=>S.forEach((b,j)=>{if(restGap(a,b)<R.dinlenme)bad.push([i,j])}));
   E.forEach((p,e)=>{
@@ -199,6 +203,17 @@ function buildLP(st){
     L.forEach(l=>{const t=per[l].map(n=>[-1,n]);
       cons.push({n:`bhi_${e}_${l}`,t:[[1,`bmax_${e}`],...t],op:'>=',rhs:0});
       cons.push({n:`blo_${e}_${l}`,t:[[1,`bmin_${e}`],...t],op:'<=',rhs:0});});});
+  // Eş kıdem adaleti: aynı kıdem seviyesindeki ve aynı birime yetkili kişiler arasında,
+  // o birimdeki vardiya sayılarının maks − min farkı (birim başına ayrı ölçülür). Kısmi zamanlılar için sayı,
+  // gruptaki en yüksek haftalık maks'a göre tam zamanlı eşdeğerine ölçeklenir (ör. maks 3 olan kişinin 3 vardiyası = 5).
+  const qw=+w.esKidem||0;
+  if(qw>0){const grp={};
+    E.forEach((p,e)=>{if(p.maxH<=0)return;allowedUnits(st,p).forEach(l=>{const g=levelOf(p)+'_'+l;(grp[g]=grp[g]||[]).push(e)})});
+    for(const g in grp){const es=grp[g];if(es.length<2)continue;const l=+g.split('_')[1],ref=Math.max(...es.map(e=>+E[e].maxH));
+      obj.push([qw,`qmax_${g}`],[-qw,`qmin_${g}`]);
+      es.forEach(e=>{const c=+(ref/E[e].maxH).toFixed(4),t=[];D.forEach((_,d)=>S.forEach((_,s)=>vs(e,d,s).forEach(n=>{if(+n.split('_')[4]===l)t.push([-c,n])})));
+        cons.push({n:`qhi_${g}_${e}`,t:[[1,`qmax_${g}`],...t],op:'>=',rhs:0});
+        cons.push({n:`qlo_${g}_${e}`,t:[[1,`qmin_${g}`],...t],op:'<=',rhs:0});});}}
   const term=([c,x],i)=>(c<0?'- ':'+ ')+Math.abs(c)+' '+x+(i%8===7?'\n  ':'');
   const row=t=>t.filter(q=>q&&q[1]).map(term).join(' ');
   const lp=['Minimize',' obj: '+row(obj),'Subject To',
@@ -220,15 +235,15 @@ const $=id=>document.getElementById(id);
 const nextMonday=()=>{const t=new Date();const iso=new Date(Date.UTC(t.getFullYear(),t.getMonth(),t.getDate())).toISOString().slice(0,10);return addDays(iso,(7-wdIdx(iso))%7||7)};
 const sample=()=>{const start=nextMonday();const st={start,days:14,
   shifts:[{kod:'S',ad:'Sabah',bas:7,bit:15,renk:'#ffb400'},{kod:'A',ad:'Akşam',bas:15,bit:23,renk:'#e6261f'},{kod:'G',ad:'Gece',bas:23,bit:7,renk:'#0a5cff'}],
-  units:[{id:'u1',kod:'AC',ad:'Acil',renk:'#00a05a',kidemli:true,demand:[[2,1,1],[2,1,1],[2,1,1],[2,1,1],[2,1,1],[1,1,1],[1,1,1]]},
-         {id:'u2',kod:'YB',ad:'Yoğun Bakım',renk:'#8b5cf6',kidemli:false,demand:[[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,0],[1,1,0]]}],
-  // [ad, kıdemli, haftalık min, haftalık maks, kaçındığı, çalışabildiği birimler (ilki ana birim)]
-  staff:[['Ayşe Yılmaz',1,4,5,[],['u1','u2']],['Mehmet Kaya',1,4,5,[],['u1']],['Zeynep Demir',0,4,5,['G'],['u1']],['Can Öztürk',1,4,5,[],['u2','u1']],
-    ['Elif Şahin',1,4,5,['A'],['u1']],['Emre Çelik',0,4,5,[],['u2']],['Selin Arslan',0,4,5,['G'],['u1','u2']],['Murat Aydın',0,4,5,[],['u2']],
-    ['Deniz Koç',0,2,3,['G'],['u1']],['Gizem Kurt',1,4,5,[],['u2','u1']],['Okan Yıldız',0,4,5,[],['u2']]]
-    .map(([ad,k,mn,mx,kc,b],i)=>({id:'p'+(i+1),ad,kidemli:!!k,minH:mn,maxH:mx,kacin:kc,birimler:b,ana:b[0]})),
+  units:[{id:'u1',kod:'AC',ad:'Acil',renk:'#00a05a',minKidem:2,kidemSayi:1,demand:[[2,1,1],[2,1,1],[2,1,1],[2,1,1],[2,1,1],[1,1,1],[1,1,1]]},
+         {id:'u2',kod:'YB',ad:'Yoğun Bakım',renk:'#8b5cf6',minKidem:0,kidemSayi:1,demand:[[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,1],[1,1,0],[1,1,0]]}],
+  // [ad, kıdem seviyesi (1 = en düşük), haftalık min, haftalık maks, kaçındığı, çalışabildiği birimler (ilki ana birim)]
+  staff:[['Ayşe Yılmaz',3,4,5,[],['u1','u2']],['Mehmet Kaya',2,4,5,[],['u1']],['Zeynep Demir',1,4,5,['G'],['u1']],['Can Öztürk',3,4,5,[],['u2','u1']],
+    ['Elif Şahin',2,4,5,['A'],['u1']],['Emre Çelik',1,4,5,[],['u2']],['Selin Arslan',1,4,5,['G'],['u1','u2']],['Murat Aydın',1,4,5,[],['u2']],
+    ['Deniz Koç',1,2,3,['G'],['u1']],['Gizem Kurt',2,4,5,[],['u2','u1']],['Okan Yıldız',1,4,5,[],['u2']]]
+    .map(([ad,k,mn,mx,kc,b],i)=>({id:'p'+(i+1),ad,kidem:k,minH:mn,maxH:mx,kacin:kc,birimler:b,ana:b[0]})),
   rules:{ardisik:5,dinlenme:11,kidemli:true,sure:15},
-  w:{eksik:1000,fazla:100,kidemli:200,tercih:10,minAlti:20,gece:15,haftasonu:15,birimDisi:5,birimDenge:5},
+  w:{eksik:1000,fazla:100,kidemli:200,tercih:10,minAlti:20,gece:15,haftasonu:15,birimDisi:5,birimDenge:5,esKidem:10},
   req:{},sol:{},solB:{},res:null,nextId:12,nextU:3,renkModu:'vardiya'};
   st.req['p3|'+addDays(start,2)]='I';st.req['p3|'+addDays(start,3)]='I';st.req['p6|'+addDays(start,9)]='I';st.req['p1|'+addDays(start,0)]='G';
   return st};
@@ -244,13 +259,16 @@ const cleanKod=v=>String(v).trim().toLocaleUpperCase('tr').replace(/[^\p{L}\p{N}
 // Eski kayıtları güncel yapıya taşır: tek st.demand → tek birim; eksik renkler ve ağırlıklar.
 const zeroDemand=()=>Array.from({length:7},()=>st.shifts.map(()=>0));
 const migrate=s=>{
-  if(!s.units||!s.units.length)s.units=[{id:'u1',kod:'B1',ad:'Birim 1',kidemli:true,demand:s.demand||Array.from({length:7},()=>s.shifts.map(()=>0))}];
+  if(!s.units||!s.units.length)s.units=[{id:'u1',kod:'B1',ad:'Birim 1',minKidem:2,kidemSayi:1,demand:s.demand||Array.from({length:7},()=>s.shifts.map(()=>0))}];
   delete s.demand;s.solB=s.solB||{};s.nextU=s.nextU||s.units.length+1;
   const def={S:'#ffb400',A:'#e6261f',G:'#0a5cff'};
   s.shifts.forEach(x=>{if(!isHex(x.renk))x.renk=def[x.kod]&&!usedColors(s).includes(def[x.kod])?def[x.kod]:nextColor(usedColors(s))});
   s.units.forEach(x=>{if(!isHex(x.renk))x.renk=nextColor(usedColors(s))});
   if(s.renkModu!=='birim')s.renkModu='vardiya';
-  s.w=s.w||{};if(s.w.birimDisi==null)s.w.birimDisi=5;if(s.w.birimDenge==null)s.w.birimDenge=5;return s};
+  // kıdemli: true/false → kıdem seviyesi; birim kıdem şartı → en az seviye ve kişi sayısı
+  s.staff.forEach(p=>{if(p.kidem==null)p.kidem=p.kidemli?2:1;delete p.kidemli});
+  s.units.forEach(u=>{const sr=unitSenior(u);u.minKidem=sr.lv;u.kidemSayi=sr.n;delete u.kidemli});
+  s.w=s.w||{};if(s.w.birimDisi==null)s.w.birimDisi=5;if(s.w.birimDenge==null)s.w.birimDenge=5;if(s.w.esKidem==null)s.w.esKidem=10;return s};
 let st;try{st=JSON.parse(localStorage.getItem('vardiya-v1'))}catch(e){}
 st=(!st||!st.shifts)?sample():migrate(st);
 let tab='staff',highs=null,stale=!st.res,fresh=false;
@@ -263,6 +281,13 @@ const unitById=id=>st.units.find(u=>u.id===id);
 // Hücrenin birimi: çözümden; yoksa kişi tek birime yetkiliyse o birim.
 const unitAt=(p,dt)=>{const b=st.solB[p.id+'|'+dt];if(b&&unitById(b))return b;const L=allowedUnits(st,p);return L.length===1?st.units[L[0]].id:null};
 const shiftByKod=k=>st.shifts.find(s=>s.kod===k);
+const fmt1=x=>Number.isInteger(x)?x:x.toFixed(1);
+// Modeldeki eş kıdem terimiyle aynı ölçü: (seviye, birim) grubunda tam zamanlı eşdeğeri vardiya sayısının maks − min farkı; en büyük grup.
+const peerGaps=()=>{const grp={},D=dateList(st);
+  st.staff.forEach(p=>{if(p.maxH<=0)return;allowedUnits(st,p).forEach(l=>{const g=levelOf(p)+'_'+l;(grp[g]=grp[g]||[]).push(p)})});
+  let best=null;for(const g in grp){const ps=grp[g];if(ps.length<2)continue;const [lv,l]=g.split('_'),u=st.units[+l],ref=Math.max(...ps.map(p=>+p.maxH));
+    const v=ps.map(p=>D.filter(dt=>{const r=st.req[p.id+'|'+dt];return r!=='I'&&(r||st.sol[p.id+'|'+dt])&&unitAt(p,dt)===u.id}).length*ref/p.maxH);
+    const gap=Math.max(...v)-Math.min(...v);if(!best||gap>best.gap)best={gap,lv,u}}return best};
 const dot=c=>`<span class="dot" style="background:${esc(c)}"></span>`;
 const swatch=(attr,i,c,label)=>`<input type="color" list="pal" ${attr}="renk" data-i="${i}" value="${esc(c)}" aria-label="${esc(label)} rengi" class="sw">`;
 // Kişinin birimlerdeki vardiya sayıları (çözüm + birimi belli kilitler); yalnızca birden fazla birime yetkili kişiler.
@@ -292,7 +317,7 @@ function renderGrid(){
       if(sc&&M&&U){if(st.renkModu==='birim'){bg=U.renk;bar=sc.renk}else bar=U.renk}
       const sty=bg?` style="background:${esc(bg)};color:${textOn(bg)}${bar?`;box-shadow:inset 0 -5px 0 ${esc(bar)}`:''}"`:'';
       return `<td class="${wdIdx(dt)>=5?'we':''}"><button class="${cls}"${sty} data-k="${key}" aria-label="${esc(p.ad)} ${dt}: ${code==='I'?'izin':code||'boş'}${M&&U?' '+esc(U.ad):''}">${code==='I'?'izin':(M&&U?`<i>${code}</i><b>${esc(U.kod)}</b>`:code)}</button></td>`}).join('');
-    return `<tr><th class="nm"><button class="nmb" data-p="${pi}" title="Personel ayarlarını aç">${esc(p.ad)}</button>${p.kidemli?'<small>kıdemli</small>':''}</th>${cells}<td class="sum">${n}</td><td class="sum">${h}</td><td class="sum">${g}</td><td class="sum">${hs}</td>${M?`<td class="sum">${(c=>c?Object.entries(c).map(([id,v])=>`<span title="${esc(unitById(id).ad)}">${esc(unitById(id).kod)} ${v}</span>`).join(' · '):'')(unitCounts(p))}</td>`:''}</tr>`}).join('');
+    return `<tr><th class="nm"><button class="nmb" data-p="${pi}" title="Personel ayarlarını aç">${esc(p.ad)}</button><small title="Kıdem seviyesi">K${levelOf(p)}</small></th>${cells}<td class="sum">${n}</td><td class="sum">${h}</td><td class="sum">${g}</td><td class="sum">${hs}</td>${M?`<td class="sum">${(c=>c?Object.entries(c).map(([id,v])=>`<span title="${esc(unitById(id).ad)}">${esc(unitById(id).kod)} ${v}</span>`).join(' · '):'')(unitCounts(p))}</td>`:''}</tr>`}).join('');
   let shortTot=0;
   const cov=st.units.map(u=>st.shifts.map((s,si)=>`<tr class="cov${M&&si===0?' ufirst':''}"><th class="nm">${M?dot(u.renk)+esc(u.kod)+' · ':''}${dot(s.renk)}${esc(s.ad)} kapsama</th>`+D.map(dt=>{
     const need=+((u.demand[wdIdx(dt)]||[])[si])||0,have=cnt[dt+'|'+s.kod+'|'+u.id]||0;if(have<need)shortTot+=need-have;
@@ -302,8 +327,10 @@ function renderGrid(){
   const nights=(nightEl.length?nightEl:st.staff).map(p=>D.filter(dt=>{const c=st.req[p.id+'|'+dt]&&st.req[p.id+'|'+dt]!=='I'?st.req[p.id+'|'+dt]:st.sol[p.id+'|'+dt];const s=st.shifts.find(x=>x.kod===c);return s&&isNight(s)}).length);
   const pref=st.staff.reduce((a,p)=>a+D.filter(dt=>(p.kacin||[]).includes(st.sol[p.id+'|'+dt])).length,0);
   const r=st.res;
+  const pg=peerGaps();
   const gaps=M?st.staff.map(unitCounts).filter(Boolean).map(c=>Math.max(...Object.values(c))-Math.min(...Object.values(c))):[];
-  $('kpis').innerHTML=[['Eksik vardiya',shortTot,shortTot?'short':''],['Tercih ihlali',r?pref:'–'],...(st.rules.kidemli?[['Kıdemlisiz vardiya',r?(r.senior??0):'–',r&&r.senior?'short':'']]:[]),['Gece dağılımı (kişi başı)',r?`${Math.min(...nights)}–${Math.max(...nights)}`:'–'],
+  $('kpis').innerHTML=[['Eksik vardiya',shortTot,shortTot?'short':''],['Tercih ihlali',r?pref:'–'],...(st.rules.kidemli&&st.units.some(u=>unitSenior(u).lv>0)?[['Kıdem şartı eksiği',r?(r.senior??0):'–',r&&r.senior?'short':'']]:[]),
+    ...(+st.w.esKidem>0?[['Eş kıdem farkı (en büyük)',r?(pg?`${fmt1(pg.gap)}${pg.gap>0?` · K${pg.lv}${M?' '+esc(pg.u.kod):''}`:''}`:0):'–']]:[]),['Gece dağılımı (kişi başı)',r?`${Math.min(...nights)}–${Math.max(...nights)}`:'–'],
     ...(M?[['Ana birim dışı atama',r?disi:'–'],['Birim dengesi (en büyük fark)',r?gaps.length?Math.max(...gaps):0:'–']]:[]),['Çözüm süresi',r?`${r.time.toFixed(1)} sn`:'–']]
     .map(([a,b,c])=>`<div class="kpi"><small>${a}</small><b class="${c||''}">${b}</b></div>`).join('');
   $('legend').innerHTML=st.shifts.map(s=>`<span>${dot(s.renk)}${esc(s.kod)} = ${esc(s.ad)} ${hh(s.bas)}–${hh(s.bit)}</span>`).join('')+
@@ -316,23 +343,24 @@ function renderPanel(){
   let h='';
   if(tab==='staff'){
     const M=multi();
-    h=`<table class="ed stack"><thead><tr><th>Ad</th><th>Kıdemli</th><th>Haftalık min</th><th>Haftalık maks</th><th>Kaçındığı vardiyalar<small>tıkla: ✕ kaçınır</small></th>${M?'<th>Çalışabildiği birimler<small>tıkla: ✓ çalışabilir</small></th><th>Ana birim</th>':''}<th></th></tr></thead><tbody>`+
+    h=`<table class="ed stack"><thead><tr><th>Ad</th><th>Kıdem seviyesi<small>1 = en düşük</small></th><th>Haftalık min</th><th>Haftalık maks</th><th>Kaçındığı vardiyalar<small>tıkla: ✕ kaçınır</small></th>${M?'<th>Çalışabildiği birimler<small>tıkla: ✓ çalışabilir</small></th><th>Ana birim</th>':''}<th></th></tr></thead><tbody>`+
     st.staff.map((p,i)=>{const L=allowedUnits(st,p),home=homeUnit(st,p);return `<tr data-row="${i}"><td data-l="Ad"><input type="text" data-s="ad" data-i="${i}" value="${esc(p.ad)}"></td>
-      <td data-l="Kıdemli"><input type="checkbox" data-s="kidemli" data-i="${i}" ${p.kidemli?'checked':''} style="width:22px;height:22px"></td>
+      <td data-l="Kıdem"><input type="number" min="1" max="9" data-s="kidem" data-i="${i}" value="${levelOf(p)}"></td>
       <td data-l="Haftalık min"><input type="number" min="0" max="7" data-s="minH" data-i="${i}" value="${p.minH}"></td>
       <td data-l="Haftalık maks"><input type="number" min="0" max="7" data-s="maxH" data-i="${i}" value="${p.maxH}"></td>
       <td data-l="Kaçındığı vardiyalar"><div class="chipset">${st.shifts.map(s=>{const on=(p.kacin||[]).includes(s.kod);return `<button class="chip avoid" data-kacin="${s.kod}" data-i="${i}" aria-pressed="${on}" title="${esc(s.ad)}: ${on?'kaçınıyor — kaldırmak için tıkla':'kaçınmıyor — eklemek için tıkla'}">${s.kod}</button>`}).join('')}</div></td>
       ${M?`<td data-l="Çalışabildiği birimler"><div class="chipset">${st.units.map((u,l)=>{const on=L.includes(l);return `<button class="chip on" data-birim="${u.id}" data-i="${i}" aria-pressed="${on}" title="${esc(u.ad)}: ${on?'çalışabilir — çıkarmak için tıkla':'çalışamaz — eklemek için tıkla'}">${esc(u.kod)}</button>`}).join('')}</div></td>
       <td data-l="Ana birim"><select data-s="ana" data-i="${i}">${L.map(l=>`<option value="${st.units[l].id}" ${l===home?'selected':''}>${esc(st.units[l].ad)}</option>`).join('')}</select></td>`:''}
       <td data-l=""><button class="btn" data-del="${i}">Sil</button></td></tr>`}).join('')+
-    `</tbody></table><p><button class="btn" id="add">+ Personel ekle</button></p><p class="note">Haftalık maks kesin kısıttır; haftalık min, altında kalınırsa cezalandırılan esnek bir hedeftir (izin günleri min'den düşülür).<br><b>Kaçındığı vardiyalar</b> kişinin tercih etmediği vardiya türleridir (ör. gece çalışmak istemeyen biri için G). Kesin yasak değildir: atama yapılabilir ama “Kaçınılan vardiyaya atama” ağırlığı kadar cezalıdır, bu yüzden çözücü mümkünse başka birini seçer. Kesin olarak çalışmaması gereken günler için ızgarada hücreye tıklayıp izin girin.${M?'<br><b>Çalışabildiği birimler</b>: kişi yalnızca işaretli birimlere atanabilir (kesin kural); ana birimi dışındaki atamalar küçük bir cezayla mümkündür. Haftalık sınırlar, dinlenme ve art arda gün kuralları kişinin tüm birimlerdeki toplam çalışmasına uygulanır.':''}</p>`;
+    `</tbody></table><p><button class="btn" id="add">+ Personel ekle</button></p><p class="note"><b>Kıdem seviyesi</b> 1'den başlar, büyük sayı daha kıdemlidir. Birimlerin kıdem şartı (Birimler sekmesi) ve eş kıdem adaleti bu seviyeye göre hesaplanır.<br>Haftalık maks kesin kısıttır; haftalık min, altında kalınırsa cezalandırılan esnek bir hedeftir (izin günleri min'den düşülür).<br><b>Kaçındığı vardiyalar</b> kişinin tercih etmediği vardiya türleridir (ör. gece çalışmak istemeyen biri için G). Kesin yasak değildir: atama yapılabilir ama “Kaçınılan vardiyaya atama” ağırlığı kadar cezalıdır, bu yüzden çözücü mümkünse başka birini seçer. Kesin olarak çalışmaması gereken günler için ızgarada hücreye tıklayıp izin girin.${M?'<br><b>Çalışabildiği birimler</b>: kişi yalnızca işaretli birimlere atanabilir (kesin kural); ana birimi dışındaki atamalar küçük bir cezayla mümkündür. Haftalık sınırlar, dinlenme ve art arda gün kuralları kişinin tüm birimlerdeki toplam çalışmasına uygulanır.':''}</p>`;
   }else if(tab==='units'){
-    h=`<table class="ed stack"><thead><tr><th>Renk</th><th>Kısa kod</th><th>Ad</th><th>Her vardiyada kıdemli</th><th></th></tr></thead><tbody>`+
+    h=`<table class="ed stack"><thead><tr><th>Renk</th><th>Kısa kod</th><th>Ad</th><th>Kıdem şartı: en az seviye<small>0 = şart yok</small></th><th>Kıdem şartı: kişi sayısı<small>her vardiyada</small></th><th></th></tr></thead><tbody>`+
     st.units.map((u,i)=>`<tr><td data-l="Renk">${swatch('data-un',i,u.renk,u.ad)}</td><td data-l="Kısa kod"><input type="text" maxlength="3" data-un="kod" data-i="${i}" value="${esc(u.kod)}" style="width:72px;min-width:0"></td>
       <td data-l="Ad"><input type="text" data-un="ad" data-i="${i}" value="${esc(u.ad)}"></td>
-      <td data-l="Kıdemli"><input type="checkbox" data-un="kidemli" data-i="${i}" ${u.kidemli!==false?'checked':''} style="width:22px;height:22px"></td>
+      <td data-l="En az kıdem"><input type="number" min="0" max="9" data-un="minKidem" data-i="${i}" value="${unitSenior(u).lv}"></td>
+      <td data-l="Kişi sayısı"><input type="number" min="0" max="20" data-un="kidemSayi" data-i="${i}" value="${unitSenior(u).n}"></td>
       <td data-l=""><button class="btn" data-delu="${i}" ${st.units.length<2?'disabled':''}>Sil</button></td></tr>`).join('')+
-    `</tbody></table><p><button class="btn" id="addu">+ Birim ekle</button></p><p class="note">Aynı ekip birden fazla birime (ör. hastanenin iki bölümü) ortak olarak çizelgelenebilir. Her birimin ihtiyacı ayrı girilir; kişinin hangi birimlerde çalışabileceği Personel sekmesinden seçilir. Kıdemli kuralı, “Kurallar” sekmesinde açıksa yalnızca işaretli birimlerde uygulanır. Birim ekleyip silmek mevcut çözümü temizler. Renkler vardiyalarla ortak paletten seçilir; ızgarada hücre rengini birime göre göstermek için çizelgenin üstündeki “Hücre rengi” seçeneğini kullanın.</p>`;
+    `</tbody></table><p><button class="btn" id="addu">+ Birim ekle</button></p><p class="note">Aynı ekip birden fazla birime (ör. hastanenin iki bölümü) ortak olarak çizelgelenebilir. Her birimin ihtiyacı ayrı girilir; kişinin hangi birimlerde çalışabileceği Personel sekmesinden seçilir. <b>Kıdem şartı</b>: ihtiyacı olan her vardiyada, kıdem seviyesi en az belirtilen değerde olan en az belirtilen sayıda kişi bulunmalıdır (ör. seviye 2, kişi 1 → “her vardiyada en az bir K2 veya üstü”). Vardiyanın ihtiyacı kişi sayısından azsa şart ihtiyaçla sınırlanır. Esnek bir kuraldır: karşılanamazsa cezalandırılır ve “Kıdem şartı eksiği” olarak raporlanır; “Kurallar” sekmesinden tamamen kapatılabilir. Birim ekleyip silmek mevcut çözümü temizler. Renkler vardiyalarla ortak paletten seçilir; ızgarada hücre rengini birime göre göstermek için çizelgenin üstündeki “Hücre rengi” seçeneğini kullanın.</p>`;
   }else if(tab==='demand'){
     const M=multi();
     h=st.units.map((u,ui)=>`${M?`<h2>${dot(u.renk)}${esc(u.ad)} <small style="color:var(--mute);font-weight:600">${esc(u.kod)}</small></h2>`:''}<table class="ed" style="margin-bottom:24px"><thead><tr><th>Gün</th>${st.shifts.map(s=>`<th>${dot(s.renk)}${esc(s.ad)}</th>`).join('')}</tr></thead><tbody>`+
@@ -349,14 +377,14 @@ function renderPanel(){
       <td data-l=""><button class="btn" data-delsh="${i}" ${st.shifts.length<2?'disabled':''}>Sil</button></td></tr>`).join('')+
     `</tbody></table><p><button class="btn" id="addsh">+ Vardiya ekle</button></p><p class="note" id="shnote">Kısa kod en fazla 3 harf/rakamdır, benzersiz olmalıdır ve “I” izin için ayrılmıştır; kod değişince kilitler ve kaçınma tercihleri de güncellenir. Gece yarısını geçen vardiya (bitiş ≤ başlangıç) gece vardiyası sayılır. Ardışık günlerdeki vardiya çiftleri arasındaki dinlenme süresi bu saatlerden hesaplanır. Vardiya silmek o vardiyanın ihtiyaçlarını, kilitlerini ve mevcut çözümü siler.</p>`;
   }else if(tab==='rules'){
-    const W=[['eksik','Eksik personel (kişi-vardiya başına)'],['fazla','İhtiyaç fazlası atama (kişi-vardiya başına)'],['kidemli','Kıdemlisiz vardiya'],['tercih','Kaçınılan vardiyaya atama'],['minAlti','Haftalık min altında kalma'],['gece','Gece adaleti (maks − min)'],['haftasonu','Hafta sonu adaleti (maks − min)'],['birimDisi','Ana birim dışına atama (birden fazla birim varsa)'],['birimDenge','Birimler arası denge (kişi başı maks − min)']];
+    const W=[['eksik','Eksik personel (kişi-vardiya başına)'],['fazla','İhtiyaç fazlası atama (kişi-vardiya başına)'],['kidemli','Kıdem şartı eksiği (kişi-vardiya başına)'],['tercih','Kaçınılan vardiyaya atama'],['minAlti','Haftalık min altında kalma'],['gece','Gece adaleti (maks − min)'],['haftasonu','Hafta sonu adaleti (maks − min)'],['birimDisi','Ana birim dışına atama (birden fazla birim varsa)'],['birimDenge','Birimler arası denge (kişi başı maks − min)'],['esKidem','Eş kıdem adaleti: aynı seviyedekiler arasında birim yükü (maks − min)']];
     h=`<div class="cols"><div><h2>Kesin kurallar</h2>
       <p><label class="f">Art arda en fazla çalışma günü <input type="number" min="1" max="14" data-r="ardisik" value="${st.rules.ardisik}"></label></p>
       <p><label class="f">İki vardiya arası min dinlenme (saat) <input type="number" min="0" max="24" data-r="dinlenme" value="${st.rules.dinlenme}"></label></p>
-      <p><label class="f"><input type="checkbox" data-r="kidemli" ${st.rules.kidemli?'checked':''} style="width:22px;height:22px"> Her vardiyada en az bir kıdemli (esnek, cezalı)</label></p>
+      <p><label class="f"><input type="checkbox" data-r="kidemli" ${st.rules.kidemli?'checked':''} style="width:22px;height:22px"> Birimlerin kıdem şartını uygula (esnek, cezalı)</label></p>
       <p><label class="f">Çözüm süre sınırı (sn) <input type="number" min="1" max="120" data-r="sure" value="${st.rules.sure}"></label></p></div>
       <div><h2>Amaç fonksiyonu ağırlıkları</h2>${W.map(([k,l])=>`<p><label class="f" style="justify-content:space-between">${l} <input type="number" min="0" data-w="${k}" value="${st.w[k]}"></label></p>`).join('')}
-      <p class="note">Amaç, ağırlıklı ceza toplamını minimize eder (her atamaya ayrıca 1 birim maliyet eklenir). Fazla atama cezası adalet ağırlıklarından büyük tutulmazsa model, dağılımı eşitlemek için ihtiyaçtan fazla kişi atayabilir.<br><b>Birimler arası denge</b>: birden fazla birime yetkili her kişi için, birimlerdeki vardiya sayılarının en büyüğü ile en küçüğü arasındaki farkı cezalandırır (ör. Acil 6 · Yoğun Bakım 2 → fark 4). <b>Ana birim dışına atama</b> ise kişiyi kendi birimine çeker; ikisi ters yönde çalışır. Bir vardiyayı ana birimden diğerine kaydırmak farkı 2 azaltır, bu yüzden denge ağırlığı × 2, ana birim cezasından büyükse model eşit dağılımı tercih eder. Tam eşitlik için ana birim cezasını 0 yapın.</p></div></div>`;
+      <p class="note">Amaç, ağırlıklı ceza toplamını minimize eder (her atamaya ayrıca 1 birim maliyet eklenir). Fazla atama cezası adalet ağırlıklarından büyük tutulmazsa model, dağılımı eşitlemek için ihtiyaçtan fazla kişi atayabilir.<br><b>Birimler arası denge</b>: birden fazla birime yetkili her kişi için, birimlerdeki vardiya sayılarının en büyüğü ile en küçüğü arasındaki farkı cezalandırır (ör. Acil 6 · Yoğun Bakım 2 → fark 4). <b>Ana birim dışına atama</b> ise kişiyi kendi birimine çeker; ikisi ters yönde çalışır. Bir vardiyayı ana birimden diğerine kaydırmak farkı 2 azaltır, bu yüzden denge ağırlığı × 2, ana birim cezasından büyükse model eşit dağılımı tercih eder. Tam eşitlik için ana birim cezasını 0 yapın.<br><b>Eş kıdem adaleti</b>: aynı kıdem seviyesindeki ve aynı birime yetkili kişiler arasında, o birimdeki vardiya sayılarının farkını her birim için ayrı cezalandırır (kısmi zamanlılar haftalık maks'larına göre tam zamanlı eşdeğerine çevrilir). <b>Gece</b> ve <b>hafta sonu adaleti</b> ise kıdemden bağımsız olarak herkes arasında ölçülür; yalnızca eş kıdem adaleti istiyorsanız bu ikisini 0 yapın.</p></div></div>`;
   }else{
     h=`<div class="cols"><div><h2>Dışa aktar</h2><p><button class="btn" id="cpcsv">Çizelgeyi CSV olarak kopyala</button> <button class="btn" id="cpjson">Girdileri JSON olarak kopyala</button></p><p class="note" id="cpnote">Kopyalanan metni Excel'e veya bir dosyaya yapıştırabilirsiniz.</p></div>
       <div><h2>İçe aktar</h2><p><input type="file" id="load" accept=".json,application/json"></p><textarea id="paste" placeholder="Veya JSON metnini buraya yapıştırın"></textarea><p><button class="btn" id="usepaste">Yapıştırılanı yükle</button> <button class="btn" id="reset">Örnek veriye dön</button></p><p class="note" id="loadnote"></p></div></div>`;
@@ -402,10 +430,11 @@ $('pal').innerHTML=PALETTE.map(c=>`<option value="${c}"></option>`).join('');
 $('colorBy').addEventListener('change',e=>{st.renkModu=e.target.value;save();renderGrid()});
 const panel=$('panel');
 panel.addEventListener('change',e=>{const t=e.target,d=t.dataset,num=Math.max(0,+t.value||0);
-  if(d.s){const p=st.staff[+d.i];p[d.s]=t.type==='checkbox'?t.checked:(t.type==='number'?num:t.value)}
+  if(d.s){const p=st.staff[+d.i];if(d.s==='kidem'){p.kidem=Math.min(9,Math.max(1,Math.round(num)||1));if(String(p.kidem)!==t.value)t.value=p.kidem}
+    else p[d.s]=t.type==='checkbox'?t.checked:(t.type==='number'?num:t.value)}
   else if(d.dem!==undefined){const u=st.units[+d.u];u.demand[+d.dem]=u.demand[+d.dem]||[];u.demand[+d.dem][+d.j]=num}
   else if(d.un){const u=st.units[+d.i];
-    if(d.un==='kidemli')u.kidemli=t.checked;
+    if(d.un==='minKidem'||d.un==='kidemSayi')u[d.un]=Math.min(d.un==='minKidem'?9:20,Math.round(num));
     else if(d.un==='renk'){if(isHex(t.value))u.renk=t.value}
     else if(d.un==='kod'){const v=cleanKod(t.value);if(!v||st.units.some((x,j)=>j!==+d.i&&x.kod===v)){renderPanel();return}u.kod=v}
     else{const v=t.value.trim();if(!v){renderPanel();return}u.ad=v}}
@@ -428,11 +457,11 @@ async function copy(txt){try{await navigator.clipboard.writeText(txt);$('cpnote'
 panel.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const d=t.dataset;
   if(d.kacin){const p=st.staff[+d.i];p.kacin=p.kacin||[];p.kacin=p.kacin.includes(d.kacin)?p.kacin.filter(x=>x!==d.kacin):[...p.kacin,d.kacin];changed()}
   else if(d.del!==undefined){const p=st.staff[+d.del];st.staff.splice(+d.del,1);for(const k in st.req)if(k.startsWith(p.id+'|'))delete st.req[k];changed()}
-  else if(t.id==='add'){st.staff.push({id:'p'+(st.nextId++),ad:'Yeni personel',kidemli:false,minH:4,maxH:5,kacin:[]});changed()}
+  else if(t.id==='add'){st.staff.push({id:'p'+(st.nextId++),ad:'Yeni personel',kidem:1,minH:4,maxH:5,kacin:[]});changed()}
   else if(d.birim){const p=st.staff[+d.i];let a=allowedUnits(st,p).map(l=>st.units[l].id);
     a=a.includes(d.birim)?a.filter(x=>x!==d.birim):st.units.map(u=>u.id).filter(id=>id===d.birim||a.includes(id));
     if(!a.length)return;p.birimler=a;if(!a.includes(p.ana))p.ana=a[0];changed()}
-  else if(t.id==='addu'){const n=st.nextU++;st.units.push({id:'u'+n,kod:'B'+n,ad:'Yeni birim',renk:nextColor(usedColors(st)),kidemli:true,demand:zeroDemand()});clearSol();changed()}
+  else if(t.id==='addu'){const n=st.nextU++;st.units.push({id:'u'+n,kod:'B'+n,ad:'Yeni birim',renk:nextColor(usedColors(st)),minKidem:0,kidemSayi:1,demand:zeroDemand()});clearSol();changed()}
   else if(t.id==='addsh'){let n=st.shifts.length+1;while(st.shifts.some(x=>x.kod==='V'+n))n++;
     st.shifts.push({kod:'V'+n,ad:'Yeni vardiya',bas:9,bit:17,renk:nextColor(usedColors(st))});
     st.units.forEach(u=>{for(let i=0;i<7;i++){u.demand[i]=u.demand[i]||[];u.demand[i][st.shifts.length-1]=0}});clearSol();changed()}

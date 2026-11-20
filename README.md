@@ -8,25 +8,25 @@ Tarayıcıda çalışan bir personel çizelgeleme (shift rostering) aracı. Kull
 
 ## Özellikler
 
-- Personel tanımı: kıdem, haftalık min/maks vardiya, kaçınılan vardiya türleri
+- Personel tanımı: elle girilen **kıdem seviyesi** (1 = en düşük), haftalık min/maks vardiya, kaçınılan vardiya türleri
 - **Birden fazla birim** (ör. hastanenin iki bölümü): her birimin ihtiyacı ayrı girilir; kişi için çalışabildiği birimler ve ana birim seçilir. Ortak ekip tek modelde çizelgelenir; kişi aynı gün yalnızca bir birimde çalışır ve kişisel kurallar (dinlenme, art arda gün, haftalık sınırlar) tüm birimlerdeki toplam çalışmaya uygulanır
 - Vardiya tanımı: vardiyalar eklenip silinebilir; kısa kod, ad, renk ve başlangıç/bitiş saati ayarlanabilir (gece yarısını geçen vardiya otomatik olarak gece vardiyası sayılır). Kod değişince kilitler ve kaçınma tercihleri de güncellenir
 - Renkler: vardiyalar ve birimler aynı paletten (veya serbest renk seçiciden) renklendirilir. Izgarada hücre rengi vardiyaya ya da birime göre seçilebilir; diğer boyut hücrenin alt şeridinde gösterilir
 - Birim başına haftanın günü × vardiya ihtiyaç matrisi
 - Izgara üzerinde hücreye tıklayarak **izin** (kesin) veya **sabit atama** (kilit) tanımlama; kilit vardiyayı sabitler, birimi çözücü seçer
 - Kesin kurallar: minimum dinlenme süresi, art arda en fazla çalışma günü, haftalık maks
-- Esnek hedefler: eksik ve fazla personel, kıdemli kapsama (birim bazında açılıp kapatılabilir), tercihler, haftalık min, ana birim dışına atama, ortak personelin birimler arasında dengeli çalışması, gece ve hafta sonu yükünde adalet
+- Esnek hedefler: eksik ve fazla personel, birim bazında kıdem şartı (her vardiyada en az *n* kişi, seviyesi en az *k*), **eş kıdem adaleti** (aynı seviyedekiler arasında her birimdeki iş yükünün dengesi), tercihler, haftalık min, ana birim dışına atama, ortak personelin birimler arasında dengeli çalışması, gece ve hafta sonu yükünde adalet
 - Ağırlıklar arayüzden ayarlanabilir
-- Birim × vardiya kapsama satırları; kişi başı birim dağılımı sütunu; eksik vardiya / tercih ihlali / gece dağılımı / ana birim dışı atama / birim dengesi göstergeleri
-- CSV (birim koduyla, ör. `S/AC`) ve JSON kopyalama, JSON içe aktarma. Birim öncesi kayıtlar ve JSON dosyaları otomatik olarak tek birimli yapıya taşınır
+- Birim × vardiya kapsama satırları; kişi başı birim dağılımı sütunu; eksik vardiya / tercih ihlali / gece dağılımı / ana birim dışı atama / birim dengesi / kıdem şartı eksiği / eş kıdem farkı göstergeleri
+- CSV (birim koduyla, ör. `S/AC`) ve JSON kopyalama, JSON içe aktarma. Eski kayıtlar ve JSON dosyaları otomatik olarak güncel yapıya taşınır (tek birim; kıdemli → seviye 2, kıdemsiz → seviye 1)
 
 ## Matematiksel model
 
-**Kümeler.** $E$ personel, $D$ planlama ufkundaki günler, $S$ vardiyalar, $J$ birimler, $B$ 7 günlük bloklar, $K \subseteq E$ kıdemliler, $J^K \subseteq J$ kıdemli kuralının uygulandığı birimler, $S^N \subseteq S$ gece vardiyaları, $D^H \subseteq D$ hafta sonu günleri. $F \subseteq S \times S$, dinlenme süresi $r$ saatin altında kalan ardışık gün vardiya çiftleri (ör. Gece → Sabah). $J_e \subseteq J$ kişinin çalışabildiği birimler, $h_e \in J_e$ ana birimi, $I_e \subseteq D$ izin günleri, $A_e \subseteq S$ kaçınılan vardiyalar, $\Lambda$ kilitli (kişi, gün, vardiya) atamaları.
+**Kümeler.** $E$ personel, $D$ planlama ufkundaki günler, $S$ vardiyalar, $J$ birimler, $B$ 7 günlük bloklar, $G$ kıdem seviyeleri ($\ell_e \in \{1,2,\dots\}$ kişinin seviyesi), $J^K \subseteq J$ kıdem şartı olan birimler ($\kappa_j \ge 1$), $S^N \subseteq S$ gece vardiyaları, $D^H \subseteq D$ hafta sonu günleri. $F \subseteq S \times S$, dinlenme süresi $r$ saatin altında kalan ardışık gün vardiya çiftleri (ör. Gece → Sabah). $J_e \subseteq J$ kişinin çalışabildiği birimler, $h_e \in J_e$ ana birimi, $I_e \subseteq D$ izin günleri, $A_e \subseteq S$ kaçınılan vardiyalar, $\Lambda$ kilitli (kişi, gün, vardiya) atamaları.
 
-**Parametreler.** $n_{dsj}$ birim ihtiyacı; $\underline{a}_e, \overline{a}_e$ haftalık min/maks; $L$ art arda en fazla gün; $c^{\cdot}$ ceza ağırlıkları.
+**Parametreler.** $n_{dsj}$ birim ihtiyacı; $\kappa_j$ birimin istediği en düşük kıdem seviyesi (0 = şart yok), $\sigma_j$ her vardiyada bu seviyede istenen kişi sayısı; $\rho_e = \max_{e' \in g}\overline{a}_{e'} / \overline{a}_e$ kişinin grubundaki tam zamanlı eşdeğeri katsayısı; $\underline{a}_e, \overline{a}_e$ haftalık min/maks; $L$ art arda en fazla gün; $c^{\cdot}$ ceza ağırlıkları.
 
-**Karar değişkenleri.** $x_{edsj} \in \{0,1\}$ atama (yalnızca $j \in J_e$ için üretilir); $u_{dsj}, o_{dsj} \ge 0$ eksik/fazla personel; $k_{dsj} \ge 0$ kıdemli eksiği; $m_{eb} \ge 0$ haftalık min açığı; $N^{+}, N^{-}, H^{+}, H^{-}$ gece ve hafta sonu yükünün en büyük/en küçük değerleri; $\beta^{+}_e, \beta^{-}_e \ge 0$ kişinin birimlerdeki vardiya sayılarının en büyük/en küçük değeri ($\lvert J_e\rvert \ge 2$ için). Kısaltma: $y_{eds} = \sum_{j \in J_e} x_{edsj}$, kişinin o gün o vardiyada (herhangi bir birimde) çalışıp çalışmadığı.
+**Karar değişkenleri.** $x_{edsj} \in \{0,1\}$ atama (yalnızca $j \in J_e$ için üretilir); $u_{dsj}, o_{dsj} \ge 0$ eksik/fazla personel; $k_{dsj} \ge 0$ kıdem şartı eksiği; $m_{eb} \ge 0$ haftalık min açığı; $N^{+}, N^{-}, H^{+}, H^{-}$ gece ve hafta sonu yükünün en büyük/en küçük değerleri; $\beta^{+}_e, \beta^{-}_e \ge 0$ kişinin birimlerdeki vardiya sayılarının en büyük/en küçük değeri ($\lvert J_e\rvert \ge 2$ için); $Q^{+}_{gj}, Q^{-}_{gj} \ge 0$ kıdem seviyesi $g$ olup birim $j$'ye yetkili kişilerin (en az 2 kişi) o birimdeki ölçeklenmiş vardiya sayısının en büyük/en küçük değeri. Kısaltma: $y_{eds} = \sum_{j \in J_e} x_{edsj}$, kişinin o gün o vardiyada (herhangi bir birimde) çalışıp çalışmadığı.
 
 **Amaç.**
 
@@ -35,16 +35,19 @@ $$
 + c^{u}\!\sum_{d,s,j} u_{dsj} + c^{o}\!\sum_{d,s,j} o_{dsj} + c^{k}\!\sum_{d,s,j} k_{dsj}
 + c^{m}\!\sum_{e,b} m_{eb} + c^{N}(N^{+}-N^{-}) + c^{H}(H^{+}-H^{-})
 + c^{\beta}\!\!\sum_{e : |J_e| \ge 2}\!\! (\beta^{+}_e-\beta^{-}_e)
++ c^{Q}\sum_{g,j} (Q^{+}_{gj}-Q^{-}_{gj})
 $$
 
-Ana birim dışı cezası $c^{b}$ ve birim dengesi $c^{\beta}$ yalnızca birden fazla birim olduğunda uygulanır. İkisi ters yönde çalışır: bir vardiyayı ana birimden diğerine kaydırmak $c^{b}$ kadar ceza ekler, kişinin birim farkını 2 azaltır. Bu yüzden $2c^{\beta} > c^{b}$ ise model eşit dağılımı tercih eder (varsayılan: $c^{b} = c^{\beta} = 5$). Kıdemli kapsama gibi daha ağır cezalar dengeyi yine bozabilir; örnekte Acil her vardiyada kıdemli istediği için ortak kıdemliler ağırlıkla Acil'de kalır.
+Ana birim dışı cezası $c^{b}$ ve birim dengesi $c^{\beta}$ yalnızca birden fazla birim olduğunda uygulanır. İkisi ters yönde çalışır: bir vardiyayı ana birimden diğerine kaydırmak $c^{b}$ kadar ceza ekler, kişinin birim farkını 2 azaltır. Bu yüzden $2c^{\beta} > c^{b}$ ise model eşit dağılımı tercih eder (varsayılan: $c^{b} = c^{\beta} = 5$). Kıdem şartı gibi daha ağır cezalar dengeyi yine bozabilir; örnekte Acil her vardiyada K2 veya üstü istediği için ortak kıdemliler ağırlıkla Acil'de kalır.
+
+Gece ($c^{N}$) ve hafta sonu ($c^{H}$) adaleti kıdemden bağımsız olarak herkes arasında ölçülür; eş kıdem adaleti ($c^{Q}$, varsayılan 10) ise yalnızca aynı seviyedekileri karşılaştırır ve her birim için ayrı hesaplanır. Yalnızca eş kıdem adaleti isteniyorsa $c^{N}$ ve $c^{H}$ arayüzden 0 yapılabilir. Kısmi zamanlı biri ($\overline{a}_e$ = 3) grubundaki tam zamanlılarla ($\overline{a}$ = 5) karşılaştırılırken vardiya sayısı $\rho_e = 5/3$ ile çarpılır; böylece az çalışması adaletsizlik sayılmaz.
 
 **Kısıtlar.**
 
 | Kural | İfade |
 |---|---|
 | Kapsama (birim başına) | $\sum_{e : j \in J_e} x_{edsj} + u_{dsj} - o_{dsj} = n_{dsj} \quad \forall d,s,j$ |
-| Kıdemli kapsama (esnek) | $\sum_{e \in K : j \in J_e} x_{edsj} + k_{dsj} \ge 1 \quad \forall d,s,\ j \in J^K : n_{dsj} > 0$ |
+| Kıdem şartı (esnek) | $\sum_{e : j \in J_e,\ \ell_e \ge \kappa_j} x_{edsj} + k_{dsj} \ge \min(\sigma_j, n_{dsj}) \quad \forall d,s,\ j \in J^K : n_{dsj} > 0$ |
 | Günde tek vardiya, tek birim | $\sum_s y_{eds} \le 1 \quad \forall e,d$ |
 | Birim yetkisi | $x_{edsj} = 0 \quad \forall j \notin J_e$ (değişken hiç üretilmez) |
 | İzin | $y_{eds} = 0 \quad \forall e,\ d \in I_e$ (değişken hiç üretilmez) |
@@ -56,6 +59,7 @@ Ana birim dışı cezası $c^{b}$ ve birim dengesi $c^{\beta}$ yalnızca birden 
 | Gece adaleti | $N^{-} \le \sum_{d}\sum_{s \in S^N} y_{eds} \le N^{+} \quad \forall e$ (geceden kaçınmayanlar) |
 | Hafta sonu adaleti | $H^{-} \le \sum_{d \in D^H}\sum_{s} y_{eds} \le H^{+} \quad \forall e$ |
 | Birim dengesi | $\beta^{-}_e \le \sum_{d,s} x_{edsj} \le \beta^{+}_e \quad \forall e : \lvert J_e\rvert \ge 2,\ j \in J_e$ |
+| Eş kıdem adaleti | $Q^{-}_{gj} \le \rho_e \sum_{d,s} x_{edsj} \le Q^{+}_{gj} \quad \forall g,j,\ e : \ell_e = g,\ j \in J_e$ |
 
 Kişiye ait tüm kurallar $y$ üzerinden, yani birimlerin toplamına yazılır: iki bölüme ortak çalışan biri, iki bölümdeki vardiyalarının toplamıyla dinlenme, art arda gün ve haftalık sınırlara tabidir. Tek birimde $J = \{1\}$ olur ve model birim öncesi modelle birebir aynıdır.
 
@@ -112,7 +116,7 @@ npm install
 npm test
 ```
 
-Test betiği örnek veriyi çözer ve çözümü LP'den bağımsız olarak denetler: kapsama, izin, kilit, dinlenme, art arda gün ve haftalık maks kuralları. Ayrıca 28 günlük ufku, kilitler kurallarla çeliştiğinde `Infeasible` sonucunu, yetersiz kadroda eksiklerin doğru raporlandığını, iki birimli örnekte birim bazında kapsamayı ve kişilerin yalnızca yetkili oldukları birimlere atandığını, birim dengesi ağırlığının ortak personelin birimler arası farkını azalttığını (rakip kural yokken en fazla 1'e indirdiğini) ve tek birimli verinin birim öncesi modelle aynı LP'yi ürettiğini kontrol eder. Bir denetim başarısız olursa betik `1` çıkış koduyla biter.
+Test betiği örnek veriyi çözer ve çözümü LP'den bağımsız olarak denetler: kapsama, izin, kilit, dinlenme, art arda gün ve haftalık maks kuralları. Ayrıca 28 günlük ufku, kilitler kurallarla çeliştiğinde `Infeasible` sonucunu, yetersiz kadroda eksiklerin doğru raporlandığını, iki birimli örnekte birim bazında kapsamayı ve kişilerin yalnızca yetkili oldukları birimlere atandığını, birim dengesi ağırlığının ortak personelin birimler arası farkını azalttığını (rakip kural yokken en fazla 1'e indirdiğini) kıdem şartının (ör. her Acil vardiyasında 2 kişi K2+) LP'den bağımsız sayılan eksikle aynı raporlandığını, eş kıdem adaletinin aynı seviyedekiler arasındaki farkı azalttığını, tek birimli verinin birim öncesi modelle ve eski kıdemli/kıdemsiz verinin karşılık gelen seviyelerle aynı LP'yi ürettiğini kontrol eder. Bir denetim başarısız olursa betik `1` çıkış koduyla biter.
 
 ## Ücretsiz yayınlama
 
@@ -128,7 +132,7 @@ Test betiği örnek veriyi çözer ve çözümü LP'den bağımsız olarak denet
 
 - Tek kullanıcı; veriler tarayıcıya ve cihaza bağlıdır.
 - Çözüm ana iş parçacığında çalışır, çözüm süresince arayüz donar (süre sınırı ayarlanabilir).
-- Birim içinde yetkinlik bazlı ihtiyaç (ör. "Acil'de her gece en az bir travma sertifikalı") yoktur; birime atanabilirlik dışında tek nitelik "kıdemli"dir.
+- Birim içinde yetkinlik bazlı ihtiyaç (ör. "Acil'de her gece en az bir travma sertifikalı") yoktur; birime atanabilirlik dışında tek nitelik kıdem seviyesidir.
 - İhtiyaç yalnızca haftanın gününe göre tanımlanır; resmî tatil veya belirli bir tarih için farklı ihtiyaç girilemez.
 - Haftalık sınırlar vardiya **sayısı** üzerindendir, saat üzerinden değil; farklı uzunlukta vardiyalarda haftalık çalışma saati denetlenmez.
 - Haftalık bloklar takvim haftası değil, başlangıç tarihinden itibaren 7'şer gündür.
@@ -165,7 +169,7 @@ Aşağıdaki maddeler mevcut kodun yapısına göre gruplanmıştır. *Model* no
 
 - **Tarih bazlı ihtiyaç ve resmî tatiller:** haftalık şablonun üzerine belirli tarihler için geçersiz kılma. *Model:* $n_{ds}$ hafta gününden değil tarihten okunur.
 - **Saat bazlı sınırlar ve fazla mesai:** vardiya uzunluğu $\ell_s$ ile $\sum_{d\in b}\sum_s \ell_s x_{eds} \le \overline{h}_e + f_{eb}$; $f_{eb}$ fazla mesai değişkeni cezalı ve üst sınırlı (ör. haftalık 45 saat).
-- **Yetkinlik / rol bazlı ihtiyaç:** $Q$ yetkinlikler, $E_q \subseteq E$; $\sum_{e \in E_q} x_{eds} + k^q_{ds} \ge n^q_{ds}$. Mevcut kıdemli kısıtı bunun özel halidir ve bu genellemeye taşınabilir.
+- **Yetkinlik / rol bazlı ihtiyaç:** $Q$ yetkinlikler, $E_q \subseteq E$; $\sum_{e \in E_q} x_{eds} + k^q_{ds} \ge n^q_{ds}$. Mevcut kıdem şartı bunun özel halidir ve bu genellemeye taşınabilir.
 - **Esnek izin isteği ↔ kesin izin:** hücre döngüsüne "istek" durumu; *Model:* değişken üretilir ama $c^{r}\sum_s x_{eds}$ cezası eklenir. Aynı mekanizmayla pozitif tercih ("bu gün çalışmak istiyorum") da desteklenir.
 - **Hafta sonu bütünlüğü:** $\sum_s x_{e,\text{Cmt},s} = \sum_s x_{e,\text{Paz},s}$ (kesin) veya farkı cezalı (esnek).
 - **Desen kuralları:**

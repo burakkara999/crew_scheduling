@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 const code = html.split('/*MODEL-START*/')[1].split('/*MODEL-END*/')[0];
-const M = new Function(code + '; return {buildLP, readSolution, dateList, wdIdx, addDays, shiftLen, isNight, restGap, unitsOf, allowedUnits, homeUnit};')();
+const M = new Function(code + '; return {buildLP, readSolution, dateList, wdIdx, addDays, shiftLen, isNight, restGap, unitsOf, allowedUnits, homeUnit, levelOf, unitSenior};')();
 
 function sample(start) {
   const st = {
@@ -153,6 +153,52 @@ function check(st, sol, solB = {}) {
   const b = M.buildLP(sb);
   console.log('single-unit compat ->', a.lp === b.lp ? 'same LP' : 'LP differs');
   expect(a.lp === b.lp, '7) single-unit compat');
+
+  // 7b) old kidemli: true/false data and the equivalent seniority levels build the same model
+  const ol = sampleUnits('2026-11-23');
+  const nl = sampleUnits('2026-11-23');
+  nl.staff.forEach(p => { p.kidem = p.kidemli ? 2 : 1; delete p.kidemli; });
+  nl.units.forEach(u => { u.minKidem = u.kidemli === false ? 0 : 2; u.kidemSayi = 1; delete u.kidemli; });
+  const sameLevels = M.buildLP(ol).lp === M.buildLP(nl).lp;
+  console.log('kidemli→levels compat ->', sameLevels ? 'same LP' : 'LP differs');
+  expect(sameLevels, '7b) seniority levels compat');
+
+  // 8) seniority levels: unit requirement "at least n people of level ≥ lv per shift", checked independently
+  const levels = { p1:3, p2:2, p3:1, p4:3, p5:2, p6:1, p7:1, p8:1, p9:1, p10:2, p11:1 };
+  const sampleLevels = (n) => { const s = sampleUnits('2026-11-23');
+    s.staff.forEach(p => { p.kidem = levels[p.id]; delete p.kidemli; });
+    s.units[0].minKidem = 2; s.units[0].kidemSayi = n; s.units[1].minKidem = 0; s.units.forEach(u => delete u.kidemli);
+    return s; };
+  const seniorShort = (s, sol, solB) => { let miss = 0;
+    M.dateList(s).forEach(dt => s.shifts.forEach((sh, j) => s.units.forEach(u => {
+      const need = (u.demand[M.wdIdx(dt)] || [])[j] || 0, r = M.unitSenior(u);
+      if (need <= 0 || r.lv <= 0 || r.n <= 0) return;
+      const have = s.staff.filter(p => sol[p.id+'|'+dt] === sh.kod && solB[p.id+'|'+dt] === u.id && M.levelOf(p) >= r.lv).length;
+      miss += Math.max(0, Math.min(r.n, need) - have);
+    })));
+    return miss; };
+  for (const n of [1, 2]) {
+    const s = sampleLevels(n), mm = M.buildLP(s), rr = highs.solve(mm.lp, { output_flag: false, time_limit: 30, mip_rel_gap: 0.005 });
+    const oo = M.readSolution(s, rr, mm), cc = check(s, oo.sol, oo.solB), miss = seniorShort(s, oo.sol, oo.solB);
+    console.log(`levels (Acil: ${n} × K2+): status=${rr.Status} seniorShort(lp)=${oo.senior} seniorShort(check)=${miss} short=${oo.short} errs`, cc.errs);
+    expect(rr.Status === 'Optimal' && !cc.errs.length && oo.senior === miss, `8) level requirement n=${n}`);
+  }
+
+  // 8b) peer fairness: among people of the same level eligible for the same unit, the (full-time-equivalent)
+  //     shift counts in that unit get closer when the weight is on, without extra shortage
+  const peerGap = (s, oo) => { const grp = {};
+    s.staff.forEach(p => M.allowedUnits(s, p).forEach(l => { const g = M.levelOf(p)+'_'+l; (grp[g] = grp[g] || []).push(p); }));
+    let tot = 0, worst = 0;
+    for (const g in grp) { const ps = grp[g]; if (ps.length < 2) continue; const u = s.units[+g.split('_')[1]].id, ref = Math.max(...ps.map(p => p.maxH));
+      const v = ps.map(p => Object.keys(oo.solB).filter(k => k.startsWith(p.id+'|') && oo.solB[k] === u).length * ref / p.maxH);
+      const gap = Math.max(...v) - Math.min(...v); tot += gap; worst = Math.max(worst, gap); }
+    return { tot: +tot.toFixed(2), worst: +worst.toFixed(2) }; };
+  const solvePeer = (q) => { const s = sampleLevels(1); Object.assign(s.w, { esKidem: q, birimDisi: 0, birimDenge: 0, gece: 0, haftasonu: 0 });
+    const mm = M.buildLP(s), rr = highs.solve(mm.lp, { output_flag: false, time_limit: 30, mip_rel_gap: 0.005 });
+    const oo = M.readSolution(s, rr, mm); return { rr, oo, c: check(s, oo.sol, oo.solB), g: peerGap(s, oo) }; };
+  const q0 = solvePeer(0), q1 = solvePeer(30);
+  console.log(`peer fairness: without total=${q0.g.tot} worst=${q0.g.worst} | with total=${q1.g.tot} worst=${q1.g.worst} short=${q1.oo.short} senior=${q1.oo.senior} errs`, q1.c.errs);
+  expect(q1.rr.Status === 'Optimal' && !q1.c.errs.length && q1.g.tot < q0.g.tot && q1.oo.short <= q0.oo.short && q1.oo.senior <= q0.oo.senior, '8b) peer fairness');
 
   if (fails.length) { console.log('FAILED:', fails.join(', ')); process.exitCode = 1; }
   else console.log('ALL CHECKS PASSED');
